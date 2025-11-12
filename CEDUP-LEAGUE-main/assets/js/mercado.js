@@ -6,28 +6,19 @@ let saldoAtual = 40.00; // Saldo para futsal
 
 // Estrutura da escalação para FUTSAL
 let escalacaoAtual = {
-    titulares: {
-        'GOL': null,
-        'FIX': null,
-        'ALA': [null, null], // 2 alas
-        'PIV': null
-    },
-    reservas: {
-        'GOL': null,
-        'FIX': null,
-        'ALA': [null, null], // 2 alas reservas
-        'PIV': null
-    }
+    'GOL': null,
+    'FIX': null,
+    'ALA': [null, null], // 2 alas
+    'PIV': null
 };
 
 // Limites de formação FUTSAL
 const FORMACAO_LIMITES = {
-    'GOL': { titulares: 1, reservas: 1 },
-    'FIX': { titulares: 1, reservas: 1 },
-    'ALA': { titulares: 2, reservas: 2 },
-    'PIV': { titulares: 1, reservas: 1 }
+    'GOL': 1,
+    'FIX': 1,
+    'ALA': 2,
+    'PIV': 1
 };
-
 // Aguarda o DOM carregar
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('🚀 Inicializando mercado de futsal...');
@@ -54,7 +45,7 @@ async function inicializarMercado() {
         await carregarJogadores();
         
         // Carregar escalação atual (se existir)
-        await carregarEscalacaoAtual();
+        await carregarEscalacaoExistente(); // ✅ CORRETO
         
         // Preencher filtro de times
         preencherFiltroTimes();
@@ -125,91 +116,235 @@ function preencherFiltroTimes() {
 // Carregar escalação atual do usuário
 async function carregarEscalacaoAtual() {
     try {
-        // Buscar a rodada ativa
-        const { data: rodadaAtiva } = await supabase
+        console.log('🔍 Carregando escalação existente...');
+        
+        const { data: rodadaAtiva, error: rodadaError } = await supabase
             .from('rounds')
             .select('id')
             .eq('status', 'active')
-            .single();
+            .maybeSingle();
         
-        if (!rodadaAtiva) {
-            console.log('⚠️ Nenhuma rodada ativa encontrada');
+        if (rodadaError || !rodadaAtiva) {
+            console.log('ℹ️ Nenhuma rodada ativa encontrada');
             return;
         }
         
-        // Buscar escalação da rodada ativa
-        const { data: escalacao } = await supabase
+        const { data: lineup, error: lineupError } = await supabase
             .from('lineups')
-            .select(`
-                id,
-                lineup_players (
-                    player_id,
-                    is_starter,
-                    players (*)
-                )
-            `)
+            .select('id')
             .eq('user_id', usuarioLogado.id)
             .eq('round_id', rodadaAtiva.id)
-            .single();
+            .maybeSingle();
         
-        if (escalacao && escalacao.lineup_players) {
-            // Reorganizar escalação por posição e tipo (titular/reserva)
-            resetarEscalacao();
-            
-            escalacao.lineup_players.forEach(lp => {
-                const jogador = lp.players;
-                const posicao = jogador.position;
-                const ehTitular = lp.is_starter;
-                
-                if (ehTitular) {
-                    if (posicao === 'ALA') {
-                        // Encontrar primeira posição vazia nos alas titulares
-                        if (escalacaoAtual.titulares.ALA[0] === null) {
-                            escalacaoAtual.titulares.ALA[0] = jogador;
-                        } else if (escalacaoAtual.titulares.ALA[1] === null) {
-                            escalacaoAtual.titulares.ALA[1] = jogador;
-                        }
-                    } else {
-                        escalacaoAtual.titulares[posicao] = jogador;
-                    }
-                } else {
-                    if (posicao === 'ALA') {
-                        // Encontrar primeira posição vazia nos alas reservas
-                        if (escalacaoAtual.reservas.ALA[0] === null) {
-                            escalacaoAtual.reservas.ALA[0] = jogador;
-                        } else if (escalacaoAtual.reservas.ALA[1] === null) {
-                            escalacaoAtual.reservas.ALA[1] = jogador;
-                        }
-                    } else {
-                        escalacaoAtual.reservas[posicao] = jogador;
-                    }
-                }
-            });
-            
-            console.log(`⚽ Escalação carregada com sucesso`);
+        if (lineupError || !lineup) {
+            console.log('ℹ️ Nenhuma escalação encontrada');
+            return;
         }
         
+        const { data: lineupPlayers, error: playersError } = await supabase
+            .from('lineup_players')
+            .select('player_id')
+            .eq('lineup_id', lineup.id)
+            .eq('is_starter', true); // Apenas titulares
+        
+        if (playersError || !lineupPlayers || lineupPlayers.length === 0) {
+            console.log('ℹ️ Escalação sem jogadores');
+            return;
+        }
+        
+        const playerIds = lineupPlayers.map(lp => lp.player_id);
+        
+        const { data: players, error: allPlayersError } = await supabase
+            .from('players')
+            .select('*')
+            .in('id', playerIds);
+        
+        if (allPlayersError) {
+            console.error('❌ Erro ao buscar players:', allPlayersError);
+            return;
+        }
+        
+        resetarEscalacao();
+        
+        players.forEach(jogador => {
+            const posicao = jogador.position;
+            
+            if (posicao === 'ALA') {
+                if (escalacaoAtual.ALA[0] === null) {
+                    escalacaoAtual.ALA[0] = jogador;
+                } else if (escalacaoAtual.ALA[1] === null) {
+                    escalacaoAtual.ALA[1] = jogador;
+                }
+            } else {
+                escalacaoAtual[posicao] = jogador;
+            }
+        });
+        
+        console.log('✅ Escalação carregada com sucesso!');
+        
     } catch (error) {
-        console.log('⚠️ Nenhuma escalação encontrada para a rodada ativa');
+        console.error('❌ Erro ao carregar escalação:', error);
         resetarEscalacao();
     }
 }
+// Função para carregar escalação existente do usuário
+async function carregarEscalacaoExistente() {
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+            console.error('Usuário não autenticado');
+            return;
+        }
 
+        console.log('🔍 Buscando escalação para usuário:', user.id);
+
+        // Buscar rodada ativa
+        const { data: rodadaAtiva, error: rodadaError } = await supabase
+            .from('rounds')
+            .select('*')
+            .eq('status', 'active')
+            .maybeSingle(); // Usar maybeSingle em vez de single para não dar erro se não existir
+
+        if (rodadaError) {
+            console.error('Erro ao buscar rodada ativa:', rodadaError);
+            return;
+        }
+
+        if (!rodadaAtiva) {
+            console.log('ℹ️ Nenhuma rodada ativa encontrada');
+            return;
+        }
+
+        console.log('✅ Rodada ativa encontrada:', rodadaAtiva.name);
+
+        // Buscar escalação do usuário para a rodada ativa
+        const { data: lineup, error: lineupError } = await supabase
+            .from('lineups')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('round_id', rodadaAtiva.id)
+            .maybeSingle();
+
+        if (lineupError) {
+            console.error('Erro ao buscar lineup:', lineupError);
+            return;
+        }
+
+        if (!lineup) {
+            console.log('ℹ️ Nenhuma escalação encontrada para esta rodada');
+            return;
+        }
+
+        console.log('✅ Escalação encontrada:', lineup.id);
+
+        // Buscar os jogadores da escalação
+        const { data: lineupPlayers, error: playersError } = await supabase
+            .from('lineup_players')
+            .select('*')
+            .eq('lineup_id', lineup.id);
+
+        if (playersError) {
+            console.error('❌ Erro ao buscar jogadores da escalação:', playersError);
+            return;
+        }
+
+        if (!lineupPlayers || lineupPlayers.length === 0) {
+            console.log('ℹ️ Escalação sem jogadores');
+            return;
+        }
+
+        console.log('✅ Jogadores da escalação:', lineupPlayers.length);
+
+        // Buscar informações completas dos jogadores
+        const playerIds = lineupPlayers.map(lp => lp.player_id);
+        
+        const { data: players, error: allPlayersError } = await supabase
+            .from('players')
+            .select('*')
+            .in('id', playerIds);
+
+        if (allPlayersError) {
+            console.error('❌ Erro ao buscar informações dos jogadores:', allPlayersError);
+            return;
+        }
+
+        console.log('✅ Informações dos jogadores carregadas:', players.length);
+
+        // Criar um mapa de jogadores para acesso rápido
+        const playersMap = {};
+        players.forEach(player => {
+            playersMap[player.id] = player;
+        });
+
+        // Reconstruir a escalação
+        escalacao = {
+            GOL: null,
+            FIX: null,
+            ALA1: null,
+            ALA2: null,
+            PIV: null,
+            reservas: []
+        };
+
+        lineupPlayers.forEach(lp => {
+            const player = playersMap[lp.player_id];
+            if (!player) {
+                console.warn('⚠️ Jogador não encontrado:', lp.player_id);
+                return;
+            }
+
+            if (lp.is_starter) {
+                // Jogador titular
+                switch (player.position) {
+                    case 'GOL':
+                        escalacao.GOL = player;
+                        break;
+                    case 'FIX':
+                        escalacao.FIX = player;
+                        break;
+                    case 'ALA':
+                        if (!escalacao.ALA1) {
+                            escalacao.ALA1 = player;
+                        } else if (!escalacao.ALA2) {
+                            escalacao.ALA2 = player;
+                        }
+                        break;
+                    case 'PIV':
+                        escalacao.PIV = player;
+                        break;
+                }
+            } else {
+                // Jogador reserva
+                escalacao.reservas.push(player);
+            }
+        });
+
+        // Atualizar a interface
+        atualizarEscalacao();
+        calcularCustos();
+
+        console.log('✅ Escalação carregada com sucesso!');
+        console.log('Titulares:', {
+            GOL: escalacao.GOL?.name,
+            FIX: escalacao.FIX?.name,
+            ALA1: escalacao.ALA1?.name,
+            ALA2: escalacao.ALA2?.name,
+            PIV: escalacao.PIV?.name
+        });
+        console.log('Reservas:', escalacao.reservas.length);
+        
+    } catch (error) {
+        console.error('❌ Erro ao carregar escalação:', error);
+    }
+}
 // Resetar escalação
 function resetarEscalacao() {
     escalacaoAtual = {
-        titulares: {
-            'GOL': null,
-            'FIX': null,
-            'ALA': [null, null],
-            'PIV': null
-        },
-        reservas: {
-            'GOL': null,
-            'FIX': null,
-            'ALA': [null, null],
-            'PIV': null
-        }
+        'GOL': null,
+        'FIX': null,
+        'ALA': [null, null],
+        'PIV': null
     };
 }
 
@@ -253,16 +388,15 @@ function renderizarJogadores() {
     }
     
     container.innerHTML = jogadoresFiltrados.map(jogador => {
-        const statusEscalacao = getStatusJogadorEscalacao(jogador.id);
-        const podeAdicionarReserva = podeAdicionarComoReserva(jogador);
+        const jaEscalado = getStatusJogadorEscalacao(jogador.id);
+        const podeAdicionar = podeAdicionarTitular(jogador.position);
         
         return `
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 transition-all duration-200 hover:shadow-lg">
                 <div class="flex items-center space-x-3">
-                    <img src="${jogador.photo_url || '/assets/images/player-default.png'}" 
-                         alt="${jogador.name}" 
-                         class="w-12 h-12 rounded-full object-cover"
-                         onerror="this.src='/assets/images/player-default.png'">
+                    <div class="w-12 h-12 bg-blue-500 ...
+                        ${jogador.position}
+                    </div>
                     <div class="flex-1">
                         <h4 class="font-semibold text-gray-900 dark:text-white">${jogador.name}</h4>
                         <p class="text-sm text-gray-600 dark:text-gray-300">${jogador.team}</p>
@@ -278,42 +412,32 @@ function renderizarJogadores() {
                 </div>
                 
                 <div class="mt-3">
-                    ${statusEscalacao ? 
+                    ${jaEscalado ? 
                         `<div class="flex items-center justify-between">
                             <span class="text-sm text-green-600 dark:text-green-400">
-                                ✓ ${statusEscalacao}
+                                ✓ Escalado
                             </span>
                             <button onclick="removerJogador('${jogador.id}')"
-                                    class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm font-medium transition-colors">
+                                    class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
                                 Remover
                             </button>
                         </div>` :
-                        `<div class="grid grid-cols-2 gap-2">
-                            ${podeAdicionarTitular(jogador.position) ? 
-                                `<button onclick="adicionarJogador('${jogador.id}', true)"
-                                        class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm font-medium transition-colors">
-                                    Titular
-                                </button>` :
-                                `<button disabled class="bg-gray-300 text-gray-500 px-3 py-1 rounded text-sm cursor-not-allowed">
-                                    Titular
-                                </button>`
-                            }
-                            ${podeAdicionarReserva ? 
-                                `<button onclick="adicionarJogador('${jogador.id}', false)"
-                                        class="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm font-medium transition-colors">
-                                    Reserva
-                                </button>` :
-                                `<button disabled class="bg-gray-300 text-gray-500 px-3 py-1 rounded text-sm cursor-not-allowed">
-                                    Reserva
-                                </button>`
-                            }
-                        </div>`
+                        `${podeAdicionar ? 
+                            `<button onclick="adicionarJogador('${jogador.id}')"
+                                    class="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+                                Adicionar
+                            </button>` :
+                            `<button disabled class="w-full bg-gray-300 text-gray-500 px-4 py-2 rounded text-sm cursor-not-allowed">
+                                Posição preenchida
+                            </button>`
+                        }`
                     }
                 </div>
             </div>
         `;
     }).join('');
 }
+
 
 // Filtrar jogadores
 function filtrarJogadores() {
@@ -346,56 +470,42 @@ function renderizarEscalacao() {
     
     container.innerHTML = `
         <!-- Quadrinha Titulares -->
-        <div class="bg-green-100 dark:bg-green-900 rounded-lg p-6 mb-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-center">
-                ⚽ TITULARES
+        <div class="bg-gradient-to-br from-green-400 to-green-600 rounded-lg p-6 shadow-lg">
+            <h3 class="text-xl font-bold text-white mb-6 text-center">
+                ⚽ SUA ESCALAÇÃO
             </h3>
             
             <!-- Campo de Futsal -->
-            <div class="relative bg-green-200 dark:bg-green-800 rounded-lg p-4 min-h-[300px]">
+            <div class="relative bg-green-300/30 backdrop-blur-sm rounded-lg p-6 min-h-[350px] border-2 border-white/50">
                 
                 <!-- Goleiro -->
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2">
-                    ${renderizarPosicaoJogador(escalacaoAtual.titulares.GOL, 'GOL', true)}
+                <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2">
+                    ${renderizarPosicaoJogador(escalacaoAtual.GOL, 'GOL')}
                 </div>
                 
                 <!-- Fixo -->
-                <div class="absolute bottom-16 left-1/2 transform -translate-x-1/2">
-                    ${renderizarPosicaoJogador(escalacaoAtual.titulares.FIX, 'FIX', true)}
+                <div class="absolute bottom-20 left-1/2 transform -translate-x-1/2">
+                    ${renderizarPosicaoJogador(escalacaoAtual.FIX, 'FIX')}
                 </div>
                 
                 <!-- Alas -->
-                <div class="absolute top-1/2 left-4 transform -translate-y-1/2">
-                    ${renderizarPosicaoJogador(escalacaoAtual.titulares.ALA[0], 'ALA', true, 0)}
+                <div class="absolute top-1/2 left-6 transform -translate-y-1/2">
+                    ${renderizarPosicaoJogador(escalacaoAtual.ALA[0], 'ALA', 0)}
                 </div>
-                <div class="absolute top-1/2 right-4 transform -translate-y-1/2">
-                    ${renderizarPosicaoJogador(escalacaoAtual.titulares.ALA[1], 'ALA', true, 1)}
+                <div class="absolute top-1/2 right-6 transform -translate-y-1/2">
+                    ${renderizarPosicaoJogador(escalacaoAtual.ALA[1], 'ALA', 1)}
                 </div>
                 
                 <!-- Pivô -->
-                <div class="absolute top-4 left-1/2 transform -translate-x-1/2">
-                    ${renderizarPosicaoJogador(escalacaoAtual.titulares.PIV, 'PIV', true)}
+                <div class="absolute top-6 left-1/2 transform -translate-x-1/2">
+                    ${renderizarPosicaoJogador(escalacaoAtual.PIV, 'PIV')}
                 </div>
                 
-            </div>
-        </div>
-        
-        <!-- Banco de Reservas -->
-        <div class="bg-orange-100 dark:bg-orange-900 rounded-lg p-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-center">
-                🪑 RESERVAS
-            </h3>
-            
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                ${renderizarReservasPorPosicao('GOL')}
-                ${renderizarReservasPorPosicao('FIX')}
-                ${renderizarReservasPorPosicao('ALA')}
-                ${renderizarReservasPorPosicao('PIV')}
             </div>
         </div>
         
         <!-- Resumo da Escalação -->
-        <div class="mt-6 bg-white dark:bg-gray-800 rounded-lg p-6">
+        <div class="mt-6 bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
             <div id="resumo-escalacao"></div>
         </div>
     `;
@@ -403,35 +513,43 @@ function renderizarEscalacao() {
     atualizarResumoEscalacao();
 }
 
+// Função para obter ícone da posição
+function getIconePosicao(posicao) {
+    const icones = {
+        'GOL': '🧤',
+        'FIX': '🛡️',
+        'ALA': '⚡',
+        'PIV': '🎯'
+    };
+    return icones[posicao] || '⚽';
+}
+
 // Renderizar jogador em uma posição (para a quadrinha)
-function renderizarPosicaoJogador(jogador, posicao, ehTitular, indiceAla = null) {
+function renderizarPosicaoJogador(jogador, posicao, indiceAla = null) {
     if (!jogador) {
         return `
-            <div class="w-16 h-16 bg-white dark:bg-gray-700 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center">
-                <span class="text-xs text-gray-500 dark:text-gray-400 font-bold">${posicao}</span>
+            <div class="w-20 h-20 bg-white/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-full border-2 border-dashed border-white flex items-center justify-center shadow-md">
+                <span class="text-sm text-gray-600 dark:text-gray-400 font-bold">${posicao}</span>
             </div>
         `;
     }
     
-    const identificador = indiceAla !== null ? `${posicao}-${indiceAla}` : posicao;
+    const corGradiente = getCorGradiente(jogador.position);
     
     return `
         <div class="relative group">
-            <div class="w-16 h-16 bg-white rounded-full border-2 border-blue-500 p-1 cursor-pointer hover:shadow-lg transition-shadow"
+            <div class="w-20 h-20 bg-gradient-to-br ${corGradiente} rounded-full border-4 border-white shadow-xl cursor-pointer hover:scale-110 transition-all flex items-center justify-center"
                  title="${jogador.name} - ${jogador.team} - C$ ${parseFloat(jogador.price).toFixed(2)}">
-                <img src="${jogador.photo_url || '/assets/images/player-default.png'}" 
-                     alt="${jogador.name}" 
-                     class="w-full h-full rounded-full object-cover"
-                     onerror="this.src='/assets/images/player-default.png'">
+                <span class="text-lg font-bold text-white">${jogador.position}</span>
             </div>
             <div class="absolute -top-2 -right-2">
                 <button onclick="removerJogador('${jogador.id}')" 
-                        class="w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                        class="w-7 h-7 bg-red-500 text-white rounded-full text-sm hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-bold shadow-lg">
                     ×
                 </button>
             </div>
-            <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
-                <span class="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded shadow text-gray-800 dark:text-gray-200">
+            <div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                <span class="text-sm bg-white dark:bg-gray-800 px-3 py-1 rounded-full shadow-md text-gray-800 dark:text-gray-200 font-semibold border border-gray-200 dark:border-gray-700">
                     ${jogador.name.split(' ')[0]}
                 </span>
             </div>
@@ -439,112 +557,28 @@ function renderizarPosicaoJogador(jogador, posicao, ehTitular, indiceAla = null)
     `;
 }
 
-// Renderizar reservas por posição
-function renderizarReservasPorPosicao(posicao) {
-    const reservas = posicao === 'ALA' ? escalacaoAtual.reservas[posicao] : [escalacaoAtual.reservas[posicao]];
-    
-    return `
-        <div class="text-center">
-            <h4 class="font-medium text-gray-800 dark:text-gray-200 mb-2">${posicao}</h4>
-            ${reservas.map((jogador, index) => {
-                if (!jogador) {
-                    return `
-                        <div class="w-12 h-12 bg-white dark:bg-gray-700 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center mx-auto mb-2">
-                            <span class="text-xs text-gray-500 font-bold">R</span>
-                        </div>
-                    `;
-                }
-                
-                return `
-                    <div class="relative group mx-auto mb-2">
-                        <div class="w-12 h-12 bg-white rounded-full border-2 border-orange-500 p-1 cursor-pointer hover:shadow-lg transition-shadow mx-auto"
-                             title="${jogador.name} - ${jogador.team} - C$ ${parseFloat(jogador.price).toFixed(2)}">
-                            <img src="${jogador.photo_url || '/assets/images/player-default.png'}" 
-                                 alt="${jogador.name}" 
-                                 class="w-full h-full rounded-full object-cover"
-                                 onerror="this.src='/assets/images/player-default.png'">
-                        </div>
-                        <button onclick="removerJogador('${jogador.id}')" 
-                                class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                            ×
-                        </button>
-                        <div class="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate max-w-16">
-                            ${jogador.name.split(' ')[0]}
-                        </div>
-                    </div>
-                `;
-            }).join('')}
-        </div>
-    `;
-}
+
+
 
 // Verificar se pode adicionar titular
 function podeAdicionarTitular(posicao) {
     if (posicao === 'ALA') {
-        return escalacaoAtual.titulares.ALA[0] === null || escalacaoAtual.titulares.ALA[1] === null;
+        return escalacaoAtual.ALA[0] === null || escalacaoAtual.ALA[1] === null;
     }
-    return escalacaoAtual.titulares[posicao] === null;
-}
-
-// Verificar se pode adicionar como reserva
-function podeAdicionarComoReserva(jogador) {
-    const posicao = jogador.position;
-    
-    // Verificar se há espaço para reserva nesta posição
-    let temEspacoReserva = false;
-    if (posicao === 'ALA') {
-        temEspacoReserva = escalacaoAtual.reservas.ALA[0] === null || escalacaoAtual.reservas.ALA[1] === null;
-    } else {
-        temEspacoReserva = escalacaoAtual.reservas[posicao] === null;
-    }
-    
-    if (!temEspacoReserva) return false;
-    
-    // Verificar regra: reserva deve custar igual ou menos que o titular mais barato
-    const titularMaisBarato = getTitularMaisBarato();
-    if (!titularMaisBarato) return false;
-    
-    return parseFloat(jogador.price) <= parseFloat(titularMaisBarato.price);
-}
-
-// Obter titular mais barato da escalação
-function getTitularMaisBarato() {
-    const todosTitulares = [];
-    
-    if (escalacaoAtual.titulares.GOL) todosTitulares.push(escalacaoAtual.titulares.GOL);
-    if (escalacaoAtual.titulares.FIX) todosTitulares.push(escalacaoAtual.titulares.FIX);
-    if (escalacaoAtual.titulares.ALA[0]) todosTitulares.push(escalacaoAtual.titulares.ALA[0]);
-    if (escalacaoAtual.titulares.ALA[1]) todosTitulares.push(escalacaoAtual.titulares.ALA[1]);
-    if (escalacaoAtual.titulares.PIV) todosTitulares.push(escalacaoAtual.titulares.PIV);
-    
-    if (todosTitulares.length === 0) return null;
-    
-    return todosTitulares.reduce((maisBarato, atual) => {
-        return parseFloat(atual.price) < parseFloat(maisBarato.price) ? atual : maisBarato;
-    });
+    return escalacaoAtual[posicao] === null;
 }
 
 // Obter status do jogador na escalação
 function getStatusJogadorEscalacao(jogadorId) {
-    // Verificar titulares
-    if (escalacaoAtual.titulares.GOL?.id === jogadorId) return 'Titular GOL';
-    if (escalacaoAtual.titulares.FIX?.id === jogadorId) return 'Titular FIX';
-    if (escalacaoAtual.titulares.ALA[0]?.id === jogadorId) return 'Titular ALA';
-    if (escalacaoAtual.titulares.ALA[1]?.id === jogadorId) return 'Titular ALA';
-    if (escalacaoAtual.titulares.PIV?.id === jogadorId) return 'Titular PIV';
-    
-    // Verificar reservas
-    if (escalacaoAtual.reservas.GOL?.id === jogadorId) return 'Reserva GOL';
-    if (escalacaoAtual.reservas.FIX?.id === jogadorId) return 'Reserva FIX';
-    if (escalacaoAtual.reservas.ALA[0]?.id === jogadorId) return 'Reserva ALA';
-    if (escalacaoAtual.reservas.ALA[1]?.id === jogadorId) return 'Reserva ALA';
-    if (escalacaoAtual.reservas.PIV?.id === jogadorId) return 'Reserva PIV';
-    
-    return null;
+    if (escalacaoAtual.GOL?.id === jogadorId) return true;
+    if (escalacaoAtual.FIX?.id === jogadorId) return true;
+    if (escalacaoAtual.ALA[0]?.id === jogadorId) return true;
+    if (escalacaoAtual.ALA[1]?.id === jogadorId) return true;
+    if (escalacaoAtual.PIV?.id === jogadorId) return true;
+    return false;
 }
 
-// Adicionar jogador à escalação
-function adicionarJogador(jogadorId, ehTitular) {
+function adicionarJogador(jogadorId) {
     const jogador = jogadoresDisponiveis.find(j => j.id === jogadorId);
     if (!jogador) return;
     
@@ -557,84 +591,46 @@ function adicionarJogador(jogadorId, ehTitular) {
         return;
     }
     
-    if (ehTitular) {
-        // Adicionar como titular
-        if (!podeAdicionarTitular(posicao)) {
-            mostrarMensagem(`Posição ${posicao} já preenchida nos titulares`, 'error');
-            return;
-        }
-        
-        if (posicao === 'ALA') {
-            if (escalacaoAtual.titulares.ALA[0] === null) {
-                escalacaoAtual.titulares.ALA[0] = jogador;
-            } else {
-                escalacaoAtual.titulares.ALA[1] = jogador;
-            }
-        } else {
-            escalacaoAtual.titulares[posicao] = jogador;
-        }
-        
-        mostrarMensagem(`${jogador.name} adicionado como titular`, 'success');
-        
-    } else {
-        // Adicionar como reserva
-        if (!podeAdicionarComoReserva(jogador)) {
-            mostrarMensagem('Não é possível adicionar como reserva (verifique valor e vagas)', 'error');
-            return;
-        }
-        
-        if (posicao === 'ALA') {
-            if (escalacaoAtual.reservas.ALA[0] === null) {
-                escalacaoAtual.reservas.ALA[0] = jogador;
-            } else {
-                escalacaoAtual.reservas.ALA[1] = jogador;
-            }
-        } else {
-            escalacaoAtual.reservas[posicao] = jogador;
-        }
-        
-        mostrarMensagem(`${jogador.name} adicionado como reserva`, 'success');
+    // Verificar se pode adicionar
+    if (!podeAdicionarTitular(posicao)) {
+        mostrarMensagem(`Posição ${posicao} já preenchida`, 'error');
+        return;
     }
+    
+    // Adicionar jogador
+    if (posicao === 'ALA') {
+        if (escalacaoAtual.ALA[0] === null) {
+            escalacaoAtual.ALA[0] = jogador;
+        } else {
+            escalacaoAtual.ALA[1] = jogador;
+        }
+    } else {
+        escalacaoAtual[posicao] = jogador;
+    }
+    
+    mostrarMensagem(`${jogador.name} adicionado à escalação`, 'success');
     
     // Atualizar displays
     renderizarJogadores();
     renderizarEscalacao();
 }
-
 // Remover jogador da escalação
 function removerJogador(jogadorId) {
     let jogadorRemovido = null;
     
-    // Buscar e remover dos titulares
-    Object.keys(escalacaoAtual.titulares).forEach(posicao => {
+    // Buscar e remover
+    Object.keys(escalacaoAtual).forEach(posicao => {
         if (posicao === 'ALA') {
-            escalacaoAtual.titulares.ALA.forEach((jogador, index) => {
+            escalacaoAtual.ALA.forEach((jogador, index) => {
                 if (jogador?.id === jogadorId) {
                     jogadorRemovido = jogador;
-                    escalacaoAtual.titulares.ALA[index] = null;
+                    escalacaoAtual.ALA[index] = null;
                 }
             });
         } else {
-            if (escalacaoAtual.titulares[posicao]?.id === jogadorId) {
-                jogadorRemovido = escalacaoAtual.titulares[posicao];
-                escalacaoAtual.titulares[posicao] = null;
-            }
-        }
-    });
-    
-    // Buscar e remover dos reservas
-    Object.keys(escalacaoAtual.reservas).forEach(posicao => {
-        if (posicao === 'ALA') {
-            escalacaoAtual.reservas.ALA.forEach((jogador, index) => {
-                if (jogador?.id === jogadorId) {
-                    jogadorRemovido = jogador;
-                    escalacaoAtual.reservas.ALA[index] = null;
-                }
-            });
-        } else {
-            if (escalacaoAtual.reservas[posicao]?.id === jogadorId) {
-                jogadorRemovido = escalacaoAtual.reservas[posicao];
-                escalacaoAtual.reservas[posicao] = null;
+            if (escalacaoAtual[posicao]?.id === jogadorId) {
+                jogadorRemovido = escalacaoAtual[posicao];
+                escalacaoAtual[posicao] = null;
             }
         }
     });
@@ -646,32 +642,18 @@ function removerJogador(jogadorId) {
     }
 }
 
+
 // ... (código anterior continua igual até calcularCustoEscalacao)
 
-// Calcular custo total da escalação
 function calcularCustoEscalacao() {
     let total = 0;
     
-    // Somar titulares
-    Object.values(escalacaoAtual.titulares).forEach(jogador => {
-        if (Array.isArray(jogador)) {
-            jogador.forEach(j => {
-                if (j) total += parseFloat(j.price);
-            });
-        } else if (jogador) {
-            total += parseFloat(jogador.price);
-        }
-    });
+    if (escalacaoAtual.GOL) total += parseFloat(escalacaoAtual.GOL.price);
+    if (escalacaoAtual.FIX) total += parseFloat(escalacaoAtual.FIX.price);
+    if (escalacaoAtual.PIV) total += parseFloat(escalacaoAtual.PIV.price);
     
-    // Somar reservas
-    Object.values(escalacaoAtual.reservas).forEach(jogador => {
-        if (Array.isArray(jogador)) {
-            jogador.forEach(j => {
-                if (j) total += parseFloat(j.price);
-            });
-        } else if (jogador) {
-            total += parseFloat(jogador.price);
-        }
+    escalacaoAtual.ALA.forEach(jogador => {
+        if (jogador) total += parseFloat(jogador.price);
     });
     
     return total;
@@ -707,85 +689,42 @@ function atualizarResumoEscalacao() {
     const resumo = document.getElementById('resumo-escalacao');
     if (!resumo) return;
     
-    // Contar jogadores por posição
     const contadores = {
-        titulares: { GOL: 0, FIX: 0, ALA: 0, PIV: 0 },
-        reservas: { GOL: 0, FIX: 0, ALA: 0, PIV: 0 }
+        GOL: escalacaoAtual.GOL ? 1 : 0,
+        FIX: escalacaoAtual.FIX ? 1 : 0,
+        ALA: escalacaoAtual.ALA.filter(j => j !== null).length,
+        PIV: escalacaoAtual.PIV ? 1 : 0
     };
     
-    // Contar titulares
-    if (escalacaoAtual.titulares.GOL) contadores.titulares.GOL = 1;
-    if (escalacaoAtual.titulares.FIX) contadores.titulares.FIX = 1;
-    contadores.titulares.ALA = escalacaoAtual.titulares.ALA.filter(j => j !== null).length;
-    if (escalacaoAtual.titulares.PIV) contadores.titulares.PIV = 1;
-    
-    // Contar reservas
-    if (escalacaoAtual.reservas.GOL) contadores.reservas.GOL = 1;
-    if (escalacaoAtual.reservas.FIX) contadores.reservas.FIX = 1;
-    contadores.reservas.ALA = escalacaoAtual.reservas.ALA.filter(j => j !== null).length;
-    if (escalacaoAtual.reservas.PIV) contadores.reservas.PIV = 1;
-    
-    const totalTitulares = Object.values(contadores.titulares).reduce((a, b) => a + b, 0);
-    const totalReservas = Object.values(contadores.reservas).reduce((a, b) => a + b, 0);
-    const totalGeral = totalTitulares + totalReservas;
-    
-    const escalacaoCompleta = totalTitulares === 5 && totalReservas === 5;
+    const totalJogadores = Object.values(contadores).reduce((a, b) => a + b, 0);
+    const escalacaoCompleta = totalJogadores === 5;
     
     resumo.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Titulares -->
-            <div>
-                <h4 class="font-semibold text-gray-900 dark:text-white mb-3">⚽ Titulares (${totalTitulares}/5)</h4>
-                <div class="grid grid-cols-4 gap-2 text-sm">
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.titulares.GOL === 1 ? 'text-green-600' : 'text-red-600'}">${contadores.titulares.GOL}</div>
-                        <div class="text-xs text-gray-500">GOL</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.titulares.FIX === 1 ? 'text-green-600' : 'text-red-600'}">${contadores.titulares.FIX}</div>
-                        <div class="text-xs text-gray-500">FIX</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.titulares.ALA === 2 ? 'text-green-600' : 'text-red-600'}">${contadores.titulares.ALA}</div>
-                        <div class="text-xs text-gray-500">ALA</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.titulares.PIV === 1 ? 'text-green-600' : 'text-red-600'}">${contadores.titulares.PIV}</div>
-                        <div class="text-xs text-gray-500">PIV</div>
-                    </div>
+        <div class="text-center">
+            <div class="grid grid-cols-4 gap-4 mb-4">
+                <div class="text-center">
+                    <div class="text-2xl font-bold ${contadores.GOL === 1 ? 'text-green-600' : 'text-red-600'}">${contadores.GOL}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">GOL</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold ${contadores.FIX === 1 ? 'text-green-600' : 'text-red-600'}">${contadores.FIX}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">FIX</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold ${contadores.ALA === 2 ? 'text-green-600' : 'text-red-600'}">${contadores.ALA}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">ALA</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold ${contadores.PIV === 1 ? 'text-green-600' : 'text-red-600'}">${contadores.PIV}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">PIV</div>
                 </div>
             </div>
             
-            <!-- Reservas -->
-            <div>
-                <h4 class="font-semibold text-gray-900 dark:text-white mb-3">🪑 Reservas (${totalReservas}/5)</h4>
-                <div class="grid grid-cols-4 gap-2 text-sm">
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.reservas.GOL === 1 ? 'text-green-600' : 'text-orange-600'}">${contadores.reservas.GOL}</div>
-                        <div class="text-xs text-gray-500">GOL</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.reservas.FIX === 1 ? 'text-green-600' : 'text-orange-600'}">${contadores.reservas.FIX}</div>
-                        <div class="text-xs text-gray-500">FIX</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.reservas.ALA === 2 ? 'text-green-600' : 'text-orange-600'}">${contadores.reservas.ALA}</div>
-                        <div class="text-xs text-gray-500">ALA</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="font-bold ${contadores.reservas.PIV === 1 ? 'text-green-600' : 'text-orange-600'}">${contadores.reservas.PIV}</div>
-                        <div class="text-xs text-gray-500">PIV</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="mt-4 text-center">
-            <div class="text-lg font-semibold ${escalacaoCompleta ? 'text-green-600' : 'text-orange-600'}">
-                ${totalGeral}/10 jogadores
+            <div class="text-xl font-bold ${escalacaoCompleta ? 'text-green-600' : 'text-orange-600'} mb-2">
+                ${totalJogadores}/5 jogadores
             </div>
             <div class="text-sm ${escalacaoCompleta ? 'text-green-600' : 'text-red-600'}">
-                ${escalacaoCompleta ? '✅ Escalação completa' : '⚠️ Escalação incompleta'}
+                ${escalacaoCompleta ? '✅ Escalação completa!' : '⚠️ Complete sua escalação'}
             </div>
         </div>
     `;
@@ -812,43 +751,26 @@ function limparEscalacao() {
 // Calcular total de jogadores na escalação
 function calcularTotalJogadores() {
     let total = 0;
-    
-    // Contar titulares
-    if (escalacaoAtual.titulares.GOL) total++;
-    if (escalacaoAtual.titulares.FIX) total++;
-    total += escalacaoAtual.titulares.ALA.filter(j => j !== null).length;
-    if (escalacaoAtual.titulares.PIV) total++;
-    
-    // Contar reservas
-    if (escalacaoAtual.reservas.GOL) total++;
-    if (escalacaoAtual.reservas.FIX) total++;
-    total += escalacaoAtual.reservas.ALA.filter(j => j !== null).length;
-    if (escalacaoAtual.reservas.PIV) total++;
-    
+    if (escalacaoAtual.GOL) total++;
+    if (escalacaoAtual.FIX) total++;
+    if (escalacaoAtual.PIV) total++;
+    total += escalacaoAtual.ALA.filter(j => j !== null).length;
     return total;
 }
 
-// Salvar escalação
 async function salvarEscalacao() {
     try {
         const totalJogadores = calcularTotalJogadores();
         
-        if (totalJogadores !== 10) {
-            mostrarMensagem('A escalação deve ter exatamente 10 jogadores (5 titulares + 5 reservas)', 'error');
+        if (totalJogadores !== 5) {
+            mostrarMensagem('A escalação deve ter exatamente 5 jogadores', 'error');
             return;
         }
         
-        // Verificar se tem pelo menos 1 de cada posição nos titulares
-        if (!escalacaoAtual.titulares.GOL || !escalacaoAtual.titulares.FIX || 
-            !escalacaoAtual.titulares.PIV || escalacaoAtual.titulares.ALA.filter(j => j).length !== 2) {
-            mostrarMensagem('Formação inválida nos titulares (1 GOL, 1 FIX, 2 ALA, 1 PIV)', 'error');
-            return;
-        }
-        
-        // Verificar se tem pelo menos 1 de cada posição nos reservas
-        if (!escalacaoAtual.reservas.GOL || !escalacaoAtual.reservas.FIX || 
-            !escalacaoAtual.reservas.PIV || escalacaoAtual.reservas.ALA.filter(j => j).length !== 2) {
-            mostrarMensagem('Formação inválida nos reservas (1 GOL, 1 FIX, 2 ALA, 1 PIV)', 'error');
+        // Verificar formação
+        if (!escalacaoAtual.GOL || !escalacaoAtual.FIX || !escalacaoAtual.PIV || 
+            escalacaoAtual.ALA.filter(j => j).length !== 2) {
+            mostrarMensagem('Formação inválida (1 GOL, 1 FIX, 2 ALA, 1 PIV)', 'error');
             return;
         }
         
@@ -903,29 +825,28 @@ async function salvarEscalacao() {
             lineupId = novaEscalacao.id;
         }
         
-        // Preparar dados para inserir
+        // Preparar dados para inserir (APENAS TITULARES)
         const jogadoresParaInserir = [];
         
-        // Adicionar titulares
-        if (escalacaoAtual.titulares.GOL) {
+        if (escalacaoAtual.GOL) {
             jogadoresParaInserir.push({
                 lineup_id: lineupId,
-                player_id: escalacaoAtual.titulares.GOL.id,
+                player_id: escalacaoAtual.GOL.id,
                 is_starter: true,
                 points: 0
             });
         }
         
-        if (escalacaoAtual.titulares.FIX) {
+        if (escalacaoAtual.FIX) {
             jogadoresParaInserir.push({
                 lineup_id: lineupId,
-                player_id: escalacaoAtual.titulares.FIX.id,
+                player_id: escalacaoAtual.FIX.id,
                 is_starter: true,
                 points: 0
             });
         }
         
-        escalacaoAtual.titulares.ALA.forEach(jogador => {
+        escalacaoAtual.ALA.forEach(jogador => {
             if (jogador) {
                 jogadoresParaInserir.push({
                     lineup_id: lineupId,
@@ -936,50 +857,11 @@ async function salvarEscalacao() {
             }
         });
         
-        if (escalacaoAtual.titulares.PIV) {
+        if (escalacaoAtual.PIV) {
             jogadoresParaInserir.push({
                 lineup_id: lineupId,
-                player_id: escalacaoAtual.titulares.PIV.id,
+                player_id: escalacaoAtual.PIV.id,
                 is_starter: true,
-                points: 0
-            });
-        }
-        
-        // Adicionar reservas
-        if (escalacaoAtual.reservas.GOL) {
-            jogadoresParaInserir.push({
-                lineup_id: lineupId,
-                player_id: escalacaoAtual.reservas.GOL.id,
-                is_starter: false,
-                points: 0
-            });
-        }
-        
-        if (escalacaoAtual.reservas.FIX) {
-            jogadoresParaInserir.push({
-                lineup_id: lineupId,
-                player_id: escalacaoAtual.reservas.FIX.id,
-                is_starter: false,
-                points: 0
-            });
-        }
-        
-        escalacaoAtual.reservas.ALA.forEach(jogador => {
-            if (jogador) {
-                jogadoresParaInserir.push({
-                    lineup_id: lineupId,
-                    player_id: jogador.id,
-                    is_starter: false,
-                    points: 0
-                });
-            }
-        });
-        
-        if (escalacaoAtual.reservas.PIV) {
-            jogadoresParaInserir.push({
-                lineup_id: lineupId,
-                player_id: escalacaoAtual.reservas.PIV.id,
-                is_starter: false,
                 points: 0
             });
         }
@@ -1002,7 +884,7 @@ async function salvarEscalacao() {
         
         saldoAtual = novoSaldo;
         
-        console.log('✅ Escalação de futsal salva com sucesso!');
+        console.log('✅ Escalação salva com sucesso!');
         mostrarMensagem('Escalação salva com sucesso!', 'success');
         
         atualizarDisplaySaldo();
@@ -1011,8 +893,15 @@ async function salvarEscalacao() {
         console.error('❌ Erro ao salvar escalação:', error);
         mostrarMensagem('Erro ao salvar escalação', 'error');
     }
+function getCorGradiente(posicao) {
+    const cores = {
+        'GOL': 'from-yellow-400 to-yellow-600',
+        'FIX': 'from-blue-400 to-blue-600',
+        'ALA': 'from-green-400 to-green-600',
+        'PIV': 'from-red-400 to-red-600'
+    };
+    return cores[posicao] || 'from-gray-400 to-gray-600';
 }
-
 // Utilitários
 function getCorPosicao(posicao) {
     const cores = {
@@ -1041,4 +930,5 @@ function mostrarMensagem(mensagem, tipo = 'info') {
     setTimeout(() => {
         notification.remove();
     }, 3000);
+}
 }

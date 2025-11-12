@@ -606,71 +606,188 @@ async function carregarRanking() {
 // CARREGAR HISTÓRICO DE ESCALAÇÕES
 // ============================================
 
+// Função para carregar o histórico de escalações
 async function carregarHistorico() {
     try {
-        console.log('📈 Carregando histórico...');
+        const { data: { user } } = await supabase.auth.getUser();
         
-        const { data: escalacoes, error } = await supabase
+        if (!user) {
+            console.error('Usuário não autenticado');
+            return;
+        }
+
+        // Buscar escalações do usuário
+        const { data: lineups, error: lineupsError } = await supabase
             .from('lineups')
-            .select(`
-                id,
-                round_id,
-                total_points,
-                created_at,
-                rounds (name)
-            `)
-            .eq('user_id', usuarioLogado.id)
+            .select('*')
+            .eq('user_id', user.id)
             .order('created_at', { ascending: false });
-        
-        if (error) throw error;
-        
-        const container = document.getElementById('historico-lista');
-        if (!container) return;
-        
-        if (!escalacoes || escalacoes.length === 0) {
-            container.innerHTML = `
-                <div class="text-center py-8 text-gray-500">
-                    <p class="mb-2">📋 Você ainda não criou nenhuma escalação</p>
-                    <a href="mercado.html" class="text-blue-600 hover:underline">
-                        Crie sua primeira escalação →
-                    </a>
+
+        if (lineupsError) {
+            console.error('❌ Erro ao buscar escalações:', lineupsError);
+            throw lineupsError;
+        }
+
+        if (!lineups || lineups.length === 0) {
+            document.getElementById('historico-lista').innerHTML = `
+                <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <p class="text-lg">📋 Nenhuma escalação encontrada</p>
+                    <p class="text-sm mt-2">Monte seu time no <a href="mercado.html" class="text-blue-600 hover:underline">Mercado</a></p>
                 </div>
             `;
             return;
         }
-        
-        container.innerHTML = escalacoes.map(escalacao => {
-            const data = new Date(escalacao.created_at).toLocaleDateString('pt-BR');
-            const rodadaNome = escalacao.rounds?.name || 'Rodada';
-            
+
+        // Buscar todas as rodadas de uma vez
+        const { data: rounds, error: roundsError } = await supabase
+            .from('rounds')
+            .select('*');
+
+        if (roundsError) {
+            console.error('❌ Erro ao buscar rodadas:', roundsError);
+            throw roundsError;
+        }
+
+        // Criar um mapa de rodadas para acesso rápido
+        const roundsMap = {};
+        if (rounds) {
+            rounds.forEach(round => {
+                roundsMap[round.id] = round;
+            });
+        }
+
+        // Montar o HTML do histórico
+        const historicoHTML = lineups.map(lineup => {
+            const round = roundsMap[lineup.round_id];
+            const roundName = round ? round.name : 'Rodada desconhecida';
+            const pontos = lineup.points || 0;
+            const dataCriacao = new Date(lineup.created_at).toLocaleDateString('pt-BR');
+
             return `
-                <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
-                    <div class="flex-1">
-                        <p class="font-semibold text-gray-900 dark:text-white">${rodadaNome}</p>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">${data}</p>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-2xl font-bold text-green-600">${escalacao.total_points || 0}</p>
-                        <p class="text-xs text-gray-500">pontos</p>
+                <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="font-semibold text-gray-900 dark:text-white">${roundName}</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">Criado em: ${dataCriacao}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">${pontos} pts</p>
+                            <button onclick="verDetalhesEscalacao('${lineup.id}')" 
+                                    class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                                Ver detalhes
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
         }).join('');
-        
-        console.log('✅ Histórico carregado:', escalacoes.length, 'escalações');
-        
+
+        document.getElementById('historico-lista').innerHTML = historicoHTML;
+
     } catch (error) {
         console.error('❌ Erro ao carregar histórico:', error);
-        const container = document.getElementById('historico-lista');
-        if (container) {
-            container.innerHTML = `
-                <div class="text-center py-8 text-red-500">
-                    Erro ao carregar histórico
+        document.getElementById('historico-lista').innerHTML = `
+            <div class="text-center py-8 text-red-500">
+                <p>Erro ao carregar histórico</p>
+                <p class="text-sm mt-2">${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+// Função para ver detalhes de uma escalação
+async function verDetalhesEscalacao(lineupId) {
+    try {
+        const { data: lineup, error } = await supabase
+            .from('lineups')
+            .select('*')
+            .eq('id', lineupId)
+            .single();
+
+        if (error) throw error;
+
+        // Buscar informações da rodada
+        const { data: round } = await supabase
+            .from('rounds')
+            .select('*')
+            .eq('id', lineup.round_id)
+            .single();
+
+        // Montar modal com detalhes
+        const modalHTML = `
+            <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onclick="fecharModal(event)">
+                <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+                            ${round ? round.name : 'Detalhes da Escalação'}
+                        </h2>
+                        <button onclick="fecharModal()" class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <h3 class="font-semibold text-gray-900 dark:text-white mb-2">📊 Resumo</h3>
+                            <p class="text-gray-700 dark:text-gray-300">Pontos: <span class="font-bold text-blue-600">${lineup.points || 0}</span></p>
+                            <p class="text-gray-700 dark:text-gray-300">Capitão: <span class="font-bold">${lineup.captain_id || 'Não definido'}</span></p>
+                        </div>
+                        
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <h3 class="font-semibold text-gray-900 dark:text-white mb-2">⚽ Escalação Completa</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">
+                                Goleiro: ${lineup.goalkeeper_id || '-'}<br>
+                                Fixo: ${lineup.defender_id || '-'}<br>
+                                Ala 1: ${lineup.winger1_id || '-'}<br>
+                                Ala 2: ${lineup.winger2_id || '-'}<br>
+                                Pivô: ${lineup.pivot_id || '-'}
+                            </p>
+                        </div>
+                        
+                        ${lineup.reserve1_id || lineup.reserve2_id || lineup.reserve3_id ? `
+                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <h3 class="font-semibold text-gray-900 dark:text-white mb-2">🔄 Reservas</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">
+                                ${lineup.reserve1_id ? `Reserva 1: ${lineup.reserve1_id}<br>` : ''}
+                                ${lineup.reserve2_id ? `Reserva 2: ${lineup.reserve2_id}<br>` : ''}
+                                ${lineup.reserve3_id ? `Reserva 3: ${lineup.reserve3_id}` : ''}
+                            </p>
+                        </div>
+                        ` : ''}
+                    </div>
+                    
+                    <button onclick="fecharModal()" 
+                            class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                        Fechar
+                    </button>
                 </div>
-            `;
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    } catch (error) {
+        console.error('❌ Erro ao buscar detalhes:', error);
+        alert('Erro ao carregar detalhes da escalação');
+    }
+}
+
+// Função para fechar o modal
+function fecharModal(event) {
+    if (!event || event.target === event.currentTarget) {
+        const modal = document.querySelector('.fixed.inset-0');
+        if (modal) {
+            modal.remove();
         }
     }
 }
+
+// Garantir que a função seja chamada quando a página carregar
+document.addEventListener('DOMContentLoaded', () => {
+    carregarHistorico();
+});
 
 // ============================================
 // ATUALIZAR DADOS PERIODICAMENTE

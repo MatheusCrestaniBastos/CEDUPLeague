@@ -260,6 +260,10 @@ async function fazerCadastro(teamName, email, senha) {
 // VERIFICAR AUTENTICAÇÃO (para outras páginas)
 // ============================================
 
+// ============================================
+// ADICIONE/SUBSTITUA esta função no seu auth.js
+// ============================================
+
 async function verificarAutenticacao() {
     try {
         const { data: { user }, error } = await supabase.auth.getUser();
@@ -285,6 +289,35 @@ async function verificarAutenticacao() {
         }
 
         usuarioAtual = userData;
+        
+        // ============================================
+        // ATUALIZAR INTERFACE COM VERIFICAÇÕES
+        // ============================================
+        
+        // Atualizar nome do time (se elemento existir)
+        const userTeamName = document.getElementById('user-team-name');
+        if (userTeamName) {
+            userTeamName.textContent = userData.team_name || 'Meu Time';
+        }
+        
+        // Atualizar cartoletas (se elemento existir)
+        const userCartoletas = document.getElementById('user-cartoletas');
+        if (userCartoletas) {
+            userCartoletas.textContent = `C$ ${parseFloat(userData.cartoletas || 0).toFixed(2)}`;
+        }
+        
+        // Atualizar cartoletas no card (se elemento existir)
+        const userCartoletasCard = document.getElementById('user-cartoletas-card');
+        if (userCartoletasCard) {
+            userCartoletasCard.textContent = `C$ ${parseFloat(userData.cartoletas || 0).toFixed(2)}`;
+        }
+        
+        // Mostrar link de admin se for admin (se elemento existir)
+        const linkAdmin = document.getElementById('link-admin');
+        if (linkAdmin && userData.role === 'admin') {
+            linkAdmin.classList.remove('hidden');
+        }
+
         return userData;
 
     } catch (error) {
@@ -293,6 +326,26 @@ async function verificarAutenticacao() {
         return null;
     }
 }
+
+// ============================================
+// ADICIONE também esta função auxiliar
+// ============================================
+
+// Função auxiliar para atualizar elemento com segurança
+function atualizarElemento(elementId, valor) {
+    const elemento = document.getElementById(elementId);
+    if (elemento) {
+        if (typeof valor === 'string') {
+            elemento.textContent = valor;
+        } else if (typeof valor === 'function') {
+            valor(elemento);
+        }
+    }
+}
+
+// Exemplo de uso:
+// atualizarElemento('user-team-name', 'Nome do Time');
+// atualizarElemento('link-admin', (el) => el.classList.remove('hidden'));
 
 // ============================================
 // LOGOUT
