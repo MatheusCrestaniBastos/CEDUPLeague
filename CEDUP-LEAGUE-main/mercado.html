@@ -6,23 +6,23 @@
     <title>Mercado - CEDUP League</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = {
-            darkMode: 'class',
-        }
+        tailwind.config = { darkMode: 'class' }
     </script>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
-    <!-- Header -->
     <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center py-4">
                 <div class="flex items-center">
                     <h1 class="text-2xl font-bold text-gray-900 dark:text-white">🛒 Mercado de Futsal</h1>
+                    <span id="status-mercado" class="ml-3 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        ✅ Aberto
+                    </span>
                 </div>
                 <nav class="flex items-center space-x-4">
                     <a href="dashboard.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">Dashboard</a>
                     <a href="mercado.html" class="text-blue-600 dark:text-blue-400 font-medium">Mercado</a>
-                    <button id="theme-toggle" class="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    <button id="theme-toggle" class="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600">
                         <span class="dark:hidden">🌙</span>
                         <span class="hidden dark:inline">☀️</span>
                     </button>
@@ -35,17 +35,15 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
             
-            <!-- Painel de Jogadores Disponíveis -->
             <div class="xl:col-span-2">
                 
-                <!-- Filtros e Busca -->
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
                     <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Filtros e Busca</h2>
                     
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Posição</label>
-                            <select id="filtro-posicao" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500">
+                            <select id="filtro-posicao" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
                                 <option value="todas">Todas as posições</option>
                                 <option value="GOL">Goleiro</option>
                                 <option value="FIX">Fixo</option>
@@ -56,40 +54,35 @@
                         
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Time</label>
-                            <select id="filtro-time" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500">
+                            <select id="filtro-time" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
                                 <option value="todos">Todos os times</option>
-                                <!-- Preenchido dinamicamente -->
                             </select>
                         </div>
                         
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Buscar Jogador</label>
-                            <input type="text" id="busca-jogador" placeholder="Digite o nome..." 
-                                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Buscar</label>
+                            <input type="text" id="busca-jogador" placeholder="Nome do jogador..." 
+                                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
                         </div>
                     </div>
                     
-                    <!-- Info sobre regras -->
-                   <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-    <p class="text-sm text-blue-800 dark:text-blue-200">
-        <strong>⚽ Futsal:</strong> Monte seu time com 5 jogadores (1 GOL, 1 FIX, 2 ALA, 1 PIV) • 
-        <strong>Saldo:</strong> C$ 40,00
-    </p>
-</div>
+                    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                        <p class="text-sm text-blue-800 dark:text-blue-200">
+                            <strong>⚽ Futsal:</strong> Monte seu time com 5 jogadores • 
+                            <strong>Saldo:</strong> C$ 40,00
+                        </p>
+                    </div>
+                </div>
 
-                <!-- Lista de Jogadores -->
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                     <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Jogadores Disponíveis</h2>
                     <div id="lista-jogadores" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- Preenchido dinamicamente -->
                     </div>
                 </div>
             </div>
 
-            <!-- Painel da Escalação -->
             <div class="xl:col-span-1">
                 
-                <!-- Informações Financeiras -->
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">💰 Orçamento</h3>
                     
@@ -113,16 +106,13 @@
                     </div>
                 </div>
 
-                <!-- Escalação Atual -->
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">⚽ Sua Escalação</h3>
                     
                     <div id="escalacao-atual">
-                        <!-- Preenchido dinamicamente com quadrinha + reservas -->
                     </div>
                 </div>
 
-                <!-- Botões de Ação -->
                 <div class="space-y-3">
                     <button id="btn-salvar-escalacao" 
                             class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
@@ -144,7 +134,6 @@
         </div>
     </div>
 
-    <!-- Loading Overlay -->
     <div id="loading-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center space-x-3">
             <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
@@ -152,7 +141,6 @@
         </div>
     </div>
 
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/config.js"></script>
     <script src="assets/js/theme.js"></script>

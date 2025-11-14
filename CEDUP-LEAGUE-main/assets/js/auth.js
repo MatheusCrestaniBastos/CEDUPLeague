@@ -1,5 +1,5 @@
 /**
- * Sistema de Autenticação
+ * CEDUP League - Sistema de Autenticação
  */
 
 let usuarioAtual = null;
@@ -66,7 +66,6 @@ async function fazerLogin(email, senha) {
     try {
         console.log('🔐 Tentando fazer login...');
         
-        // 1. Autenticar no Supabase Auth
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
             email: email,
             password: senha
@@ -79,26 +78,23 @@ async function fazerLogin(email, senha) {
 
         console.log('✅ Autenticação bem-sucedida:', authData.user.email);
 
-        // 2. Buscar dados do usuário na tabela 'users'
+        // Buscar dados do usuário usando RPC
         const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', authData.user.id)
-            .single();
+            .rpc('get_user_by_id', { user_id: authData.user.id });
 
-        if (userError) {
+        if (userError || !userData || userData.length === 0) {
             console.error('❌ Erro ao buscar dados do usuário:', userError);
             throw new Error('Erro ao carregar dados do usuário');
         }
 
-        console.log('✅ Dados do usuário carregados:', userData);
-        usuarioAtual = userData;
+        const user = userData[0];
+        console.log('✅ Dados do usuário carregados:', user);
+        usuarioAtual = user;
 
-        // 3. Redirecionar baseado no role
         mostrarMensagem('Login realizado com sucesso! Redirecionando...', 'sucesso');
         
         setTimeout(() => {
-            if (userData.role === 'admin') {
+            if (user.role === 'admin' || user.is_admin) {
                 console.log('🔑 Redirecionando para painel admin...');
                 window.location.href = 'admin.html';
             } else {
@@ -119,11 +115,8 @@ async function fazerLogin(email, senha) {
 
 async function fazerCadastro(teamName, email, senha) {
     try {
-        console.log('📝 Iniciando cadastro...');
-        console.log('📧 Email:', email);
-        console.log('👤 Time:', teamName);
+        console.log('🔐 Iniciando cadastro...');
 
-        // Validações básicas
         if (!teamName || teamName.length < 3) {
             throw new Error('Nome do time deve ter pelo menos 3 caracteres');
         }
@@ -138,24 +131,15 @@ async function fazerCadastro(teamName, email, senha) {
 
         mostrarMensagem('Criando sua conta...', 'info');
 
-        // 1. Criar usuário no Supabase Auth
-        console.log('🔐 Criando usuário no Auth...');
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: email,
-            password: senha,
-            options: {
-                emailRedirectTo: window.location.origin + '/dashboard.html'
-            }
+            password: senha
         });
 
         if (signUpError) {
             console.error('❌ Erro no Auth:', signUpError);
             
-            // Traduzir erros comuns
-            if (signUpError.message.includes('after')) {
-                throw new Error('⏱️ Aguarde um momento antes de tentar novamente');
-            }
-            if (signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')) {
+            if (signUpError.message.includes('already registered')) {
                 throw new Error('📧 Este email já está cadastrado. Faça login.');
             }
             
@@ -167,13 +151,11 @@ async function fazerCadastro(teamName, email, senha) {
         }
 
         console.log('✅ Usuário criado no Auth:', signUpData.user.id);
-        console.log('🔐 Sessão automática:', signUpData.session ? 'SIM' : 'NÃO');
 
-        // 2. Se NÃO criou sessão automática, fazer login manual
+        // Fazer login se sessão não foi criada automaticamente
         let session = signUpData.session;
         
         if (!session) {
-            console.log('⚠️ Sessão não foi criada automaticamente');
             console.log('🔐 Fazendo login manual...');
             
             const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
@@ -182,18 +164,16 @@ async function fazerCadastro(teamName, email, senha) {
             });
 
             if (signInError) {
-                console.error('❌ Erro ao fazer login:', signInError);
                 throw new Error('Conta criada, mas não foi possível fazer login. Tente fazer login manualmente.');
             }
 
             session = signInData.session;
-            console.log('✅ Login manual bem-sucedido:', session.user.id);
+            console.log('✅ Login manual bem-sucedido');
         }
 
-        // 3. Aguardar um momento para garantir que tudo está pronto
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        // 4. Criar registro na tabela 'users'
+        // Criar perfil na tabela users
         console.log('📊 Criando perfil na tabela users...');
         
         const { data: userData, error: userError } = await supabase
@@ -204,7 +184,8 @@ async function fazerCadastro(teamName, email, senha) {
                     email: email,
                     team_name: teamName,
                     role: 'user',
-                    cartoletas: 100.00,
+                    is_admin: false,
+                    cartoletas: 40.00,
                     total_points: 0
                 }
             ])
@@ -213,10 +194,7 @@ async function fazerCadastro(teamName, email, senha) {
 
         if (userError) {
             console.error('❌ Erro ao criar perfil:', userError);
-            console.error('Código do erro:', userError.code);
-            console.error('Detalhes:', userError.message);
             
-            // Se o erro for de duplicação, significa que o usuário já existe
             if (userError.code === '23505') {
                 console.log('⚠️ Perfil já existe, fazendo login...');
                 mostrarMensagem('✅ Conta já existe! Redirecionando...', 'sucesso');
@@ -233,35 +211,19 @@ async function fazerCadastro(teamName, email, senha) {
 
         mostrarMensagem('✅ Conta criada com sucesso! Redirecionando...', 'sucesso');
 
-        // 5. Redirecionar para dashboard
         setTimeout(() => {
             console.log('🔄 Redirecionando para dashboard...');
             window.location.href = 'dashboard.html';
         }, 2000);
 
     } catch (error) {
-        console.error('❌ ERRO COMPLETO:', error);
-        console.error('Stack trace:', error.stack);
-        
-        let mensagemErro = error.message;
-        
-        // Traduzir erros comuns
-        if (mensagemErro.includes('violates row-level security')) {
-            mensagemErro = '🔒 Erro de permissão. Configure as políticas RLS no Supabase.';
-        } else if (mensagemErro.includes('duplicate key')) {
-            mensagemErro = '📧 Este email já está cadastrado. Tente fazer login.';
-        }
-        
-        mostrarMensagem('❌ ' + mensagemErro, 'erro');
+        console.error('❌ ERRO:', error);
+        mostrarMensagem('❌ ' + error.message, 'erro');
     }
 }
 
 // ============================================
-// VERIFICAR AUTENTICAÇÃO (para outras páginas)
-// ============================================
-
-// ============================================
-// ADICIONE/SUBSTITUA esta função no seu auth.js
+// VERIFICAR AUTENTICAÇÃO
 // ============================================
 
 async function verificarAutenticacao() {
@@ -269,56 +231,24 @@ async function verificarAutenticacao() {
         const { data: { user }, error } = await supabase.auth.getUser();
 
         if (error || !user) {
-            console.log('⚠️ Usuário não autenticado, redirecionando...');
+            console.log('⚠️ Usuário não autenticado');
             window.location.href = 'index.html';
             return null;
         }
 
         console.log('✅ Usuário autenticado:', user.email);
 
-        // Buscar dados completos do usuário
+        // Buscar dados usando RPC
         const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+            .rpc('get_user_by_id', { user_id: user.id });
 
-        if (userError) {
+        if (userError || !userData || userData.length === 0) {
             console.error('❌ Erro ao buscar dados:', userError);
             return null;
         }
 
-        usuarioAtual = userData;
-        
-        // ============================================
-        // ATUALIZAR INTERFACE COM VERIFICAÇÕES
-        // ============================================
-        
-        // Atualizar nome do time (se elemento existir)
-        const userTeamName = document.getElementById('user-team-name');
-        if (userTeamName) {
-            userTeamName.textContent = userData.team_name || 'Meu Time';
-        }
-        
-        // Atualizar cartoletas (se elemento existir)
-        const userCartoletas = document.getElementById('user-cartoletas');
-        if (userCartoletas) {
-            userCartoletas.textContent = `C$ ${parseFloat(userData.cartoletas || 0).toFixed(2)}`;
-        }
-        
-        // Atualizar cartoletas no card (se elemento existir)
-        const userCartoletasCard = document.getElementById('user-cartoletas-card');
-        if (userCartoletasCard) {
-            userCartoletasCard.textContent = `C$ ${parseFloat(userData.cartoletas || 0).toFixed(2)}`;
-        }
-        
-        // Mostrar link de admin se for admin (se elemento existir)
-        const linkAdmin = document.getElementById('link-admin');
-        if (linkAdmin && userData.role === 'admin') {
-            linkAdmin.classList.remove('hidden');
-        }
-
-        return userData;
+        usuarioAtual = userData[0];
+        return usuarioAtual;
 
     } catch (error) {
         console.error('❌ Erro ao verificar autenticação:', error);
@@ -326,26 +256,6 @@ async function verificarAutenticacao() {
         return null;
     }
 }
-
-// ============================================
-// ADICIONE também esta função auxiliar
-// ============================================
-
-// Função auxiliar para atualizar elemento com segurança
-function atualizarElemento(elementId, valor) {
-    const elemento = document.getElementById(elementId);
-    if (elemento) {
-        if (typeof valor === 'string') {
-            elemento.textContent = valor;
-        } else if (typeof valor === 'function') {
-            valor(elemento);
-        }
-    }
-}
-
-// Exemplo de uso:
-// atualizarElemento('user-team-name', 'Nome do Time');
-// atualizarElemento('link-admin', (el) => el.classList.remove('hidden'));
 
 // ============================================
 // LOGOUT
@@ -375,7 +285,6 @@ async function logout() {
 document.addEventListener('DOMContentLoaded', () => {
     console.log('✅ auth.js carregado');
 
-    // Formulário de Login
     const formLogin = document.getElementById('form-login');
     if (formLogin) {
         formLogin.addEventListener('submit', async (e) => {
@@ -383,14 +292,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const email = document.getElementById('login-email').value.trim();
             const senha = document.getElementById('login-senha').value;
-
-            console.log('📧 Tentando login com:', email);
             
             await fazerLogin(email, senha);
         });
     }
 
-    // Formulário de Cadastro
     const formCadastro = document.getElementById('form-cadastro');
     if (formCadastro) {
         formCadastro.addEventListener('submit', async (e) => {
@@ -399,10 +305,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const teamName = document.getElementById('cadastro-time').value.trim();
             const email = document.getElementById('cadastro-email').value.trim();
             const senha = document.getElementById('cadastro-senha').value;
-
-            console.log('📝 Tentando cadastro:', email, teamName);
             
             await fazerCadastro(teamName, email, senha);
         });
     }
 });
+
+// Exportar para uso global
+window.mostrarLogin = mostrarLogin;
+window.mostrarCadastro = mostrarCadastro;
+window.logout = logout;
+window.verificarAutenticacao = verificarAutenticacao;

@@ -19,6 +19,63 @@ const FORMACAO_LIMITES = {
     'ALA': 2,
     'PIV': 1
 };
+
+// ============================================
+// FUNÇÕES UTILITÁRIAS (devem estar no início)
+// ============================================
+
+// Obter cor do badge da posição
+function getCorPosicao(posicao) {
+    const cores = {
+        'GOL': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
+        'FIX': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+        'ALA': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+        'PIV': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+    };
+    return cores[posicao] || 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+}
+
+// Obter cor do círculo da posição
+function getCorCirculo(posicao) {
+    const cores = {
+        'GOL': 'bg-yellow-500',
+        'FIX': 'bg-blue-500',
+        'ALA': 'bg-green-500',
+        'PIV': 'bg-red-500'
+    };
+    return cores[posicao] || 'bg-gray-500';
+}
+
+// Obter cor gradiente da posição
+function getCorGradiente(posicao) {
+    const cores = {
+        'GOL': 'from-yellow-400 to-yellow-600',
+        'FIX': 'from-blue-400 to-blue-600',
+        'ALA': 'from-green-400 to-green-600',
+        'PIV': 'from-red-400 to-red-600'
+    };
+    return cores[posicao] || 'from-gray-400 to-gray-600';
+}
+
+// Mostrar mensagem de notificação
+function mostrarMensagem(mensagem, tipo = 'info') {
+    console.log(`${tipo.toUpperCase()}: ${mensagem}`);
+    
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-all duration-300 ${
+        tipo === 'success' ? 'bg-green-500 text-white' :
+        tipo === 'error' ? 'bg-red-500 text-white' :
+        tipo === 'warning' ? 'bg-yellow-500 text-white' :
+        'bg-blue-500 text-white'
+    }`;
+    notification.textContent = mensagem;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
 // Aguarda o DOM carregar
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('🚀 Inicializando mercado de futsal...');
@@ -38,6 +95,14 @@ async function inicializarMercado() {
     try {
         console.log('⚙️ Carregando dados do mercado de futsal...');
         
+        // ✅ VERIFICAR SE HÁ RODADA ATIVA ANTES DE TUDO
+        await verificarStatusMercado();
+        
+        if (!mercadoAberto) {
+            mostrarMercadoFechado();
+            return; // Não carrega nada se mercado estiver fechado
+        }
+        
         // Carregar saldo atual do usuário
         await carregarSaldoUsuario();
         
@@ -45,7 +110,7 @@ async function inicializarMercado() {
         await carregarJogadores();
         
         // Carregar escalação atual (se existir)
-        await carregarEscalacaoExistente(); // ✅ CORRETO
+        await carregarEscalacaoAtual();
         
         // Preencher filtro de times
         preencherFiltroTimes();
@@ -64,6 +129,183 @@ async function inicializarMercado() {
         console.error('❌ Erro ao inicializar mercado:', error);
         mostrarMensagem('Erro ao carregar o mercado', 'error');
     }
+}
+// ============================================
+// ADICIONE no mercado.js após inicializarMercado
+// ============================================
+
+// Verificar se o mercado está aberto
+let mercadoAberto = true;
+
+async function verificarStatusMercado() {
+    try {
+        // Buscar rodada ativa
+        const { data: rodadaAtiva, error } = await supabase
+            .from('rounds')
+            .select('id, name, status')
+            .eq('status', 'active')
+            .single();
+        
+        if (error && error.code !== 'PGRST116') {
+            console.error('Erro ao verificar rodada:', error);
+        }
+        
+        if (rodadaAtiva) {
+            console.log('🔒 Rodada ativa encontrada:', rodadaAtiva.name);
+            mercadoAberto = false;
+            return false;
+        } else {
+            console.log('✅ Nenhuma rodada ativa - Mercado aberto');
+            mercadoAberto = true;
+            return true;
+        }
+        
+    } catch (error) {
+        console.error('Erro ao verificar status do mercado:', error);
+        mercadoAberto = true; // Em caso de erro, deixar aberto
+        return true;
+    }
+}
+// Mostrar mensagem de mercado fechado
+function mostrarMercadoFechado() {
+    const container = document.querySelector('.max-w-7xl');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="min-h-screen flex items-center justify-center">
+            <div class="max-w-2xl mx-auto text-center px-4">
+                <!-- Ícone de bloqueio -->
+                <div class="mb-8">
+                    <div class="inline-block p-6 bg-red-100 dark:bg-red-900 rounded-full">
+                        <svg class="w-24 h-24 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                        </svg>
+                    </div>
+                </div>
+                
+                <!-- Título -->
+                <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-4">
+                    🔒 Mercado Fechado
+                </h1>
+                
+                <!-- Mensagem -->
+                <div class="bg-yellow-50 dark:bg-yellow-900/20 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg p-6 mb-8">
+                    <p class="text-lg text-gray-700 dark:text-gray-300 mb-2">
+                        <strong>Há uma rodada em andamento!</strong>
+                    </p>
+                    <p class="text-gray-600 dark:text-gray-400">
+                        O mercado está temporariamente fechado durante as partidas.<br>
+                        Você poderá fazer alterações na sua escalação assim que a rodada for finalizada.
+                    </p>
+                </div>
+                
+                <!-- Informações -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+                        <div class="text-3xl mb-2">⚽</div>
+                        <h3 class="font-semibold text-gray-900 dark:text-white mb-2">Acompanhe os Jogos</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400">
+                            Veja como seus jogadores estão se saindo em tempo real
+                        </p>
+                    </div>
+                    
+                    <div class="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+                        <div class="text-3xl mb-2">📊</div>
+                        <h3 class="font-semibold text-gray-900 dark:text-white mb-2">Pontuação ao Vivo</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400">
+                            Os pontos são atualizados conforme as estatísticas
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Botões de ação -->
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <a href="dashboard.html" class="inline-flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                        </svg>
+                        Ver Dashboard
+                    </a>
+                    
+                    <button onclick="location.reload()" class="inline-flex items-center justify-center px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                        Atualizar Página
+                    </button>
+                </div>
+                
+                <!-- Dica -->
+                <div class="mt-8 text-sm text-gray-500 dark:text-gray-400">
+                    <p>💡 <strong>Dica:</strong> Fique de olho no ranking para ver como está sua colocação!</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ============================================
+// MODIFIQUE a função inicializarMercado para incluir verificação
+// ============================================
+
+async function inicializarMercado() {
+    try {
+        console.log('⚙️ Carregando dados do mercado de futsal...');
+        await verificarStatusMercado();
+    atualizarBadgeMercado();
+        // Verificar status do mercado
+        const mercadoEstaAberto = await verificarStatusMercado();
+        
+        // Carregar saldo atual do usuário
+        await carregarSaldoUsuario();
+        
+        // Carregar jogadores disponíveis
+        await carregarJogadores();
+        
+        // Carregar escalação atual (se existir)
+        await carregarEscalacaoAtual();
+        
+        // Preencher filtro de times
+        preencherFiltroTimes();
+        
+        // Configurar filtros e busca
+        configurarFiltros();
+        
+        // Atualizar displays
+        atualizarDisplaySaldo();
+        
+        if (mercadoEstaAberto) {
+            renderizarJogadores();
+        }
+        
+        renderizarEscalacao();
+        
+        console.log('✅ Mercado de futsal inicializado com sucesso!');
+        
+    } catch (error) {
+        console.error('❌ Erro ao inicializar mercado:', error);
+        mostrarMensagem('Erro ao carregar o mercado', 'error');
+    }
+}
+
+// ============================================
+// MODIFIQUE as funções de adicionar/remover para verificar mercado
+// ============================================
+
+function adicionarJogador(jogadorId, ehTitular) {
+    if (!mercadoAberto) {
+        mostrarMensagem('Mercado fechado! Aguarde o fim da rodada.', 'error');
+        return;
+    }
+
+function removerJogador(jogadorId) {
+    // Verificar se mercado está aberto
+    if (!mercadoAberto) {
+        mostrarMensagem('O mercado está fechado!', 'error');
+        return;
+    }
+    
+    // ... resto do código original ...
 }
 
 // Carregar saldo atual do usuário
@@ -114,21 +356,31 @@ function preencherFiltroTimes() {
 }
 
 // Carregar escalação atual do usuário
+// SUBSTITUA a função carregarEscalacaoAtual no mercado.js
 async function carregarEscalacaoAtual() {
     try {
         console.log('🔍 Carregando escalação existente...');
         
+        // Buscar rodada ativa
         const { data: rodadaAtiva, error: rodadaError } = await supabase
             .from('rounds')
-            .select('id')
+            .select('id, status')
             .eq('status', 'active')
             .maybeSingle();
         
-        if (rodadaError || !rodadaAtiva) {
+        if (rodadaError) {
+            console.error('❌ Erro ao buscar rodada:', rodadaError);
+            return;
+        }
+        
+        if (!rodadaAtiva) {
             console.log('ℹ️ Nenhuma rodada ativa encontrada');
             return;
         }
         
+        console.log('✅ Rodada ativa:', rodadaAtiva.id);
+        
+        // Buscar escalação
         const { data: lineup, error: lineupError } = await supabase
             .from('lineups')
             .select('id')
@@ -136,22 +388,37 @@ async function carregarEscalacaoAtual() {
             .eq('round_id', rodadaAtiva.id)
             .maybeSingle();
         
-        if (lineupError || !lineup) {
-            console.log('ℹ️ Nenhuma escalação encontrada');
+        if (lineupError) {
+            console.error('❌ Erro ao buscar lineup:', lineupError);
             return;
         }
         
+        if (!lineup) {
+            console.log('ℹ️ Nenhuma escalação encontrada para esta rodada');
+            return;
+        }
+        
+        console.log('✅ Lineup encontrado:', lineup.id);
+        
+        // Buscar jogadores da escalação
         const { data: lineupPlayers, error: playersError } = await supabase
             .from('lineup_players')
-            .select('player_id')
-            .eq('lineup_id', lineup.id)
-            .eq('is_starter', true); // Apenas titulares
+            .select('player_id, is_starter')
+            .eq('lineup_id', lineup.id);
         
-        if (playersError || !lineupPlayers || lineupPlayers.length === 0) {
+        if (playersError) {
+            console.error('❌ Erro ao buscar lineup_players:', playersError);
+            return;
+        }
+        
+        if (!lineupPlayers || lineupPlayers.length === 0) {
             console.log('ℹ️ Escalação sem jogadores');
             return;
         }
         
+        console.log('✅ Jogadores encontrados:', lineupPlayers.length);
+        
+        // Buscar informações dos jogadores
         const playerIds = lineupPlayers.map(lp => lp.player_id);
         
         const { data: players, error: allPlayersError } = await supabase
@@ -164,19 +431,44 @@ async function carregarEscalacaoAtual() {
             return;
         }
         
+        // Criar mapa de jogadores
+        const playersMap = {};
+        players.forEach(player => {
+            playersMap[player.id] = player;
+        });
+        
+        // Resetar e reconstruir escalação
         resetarEscalacao();
         
-        players.forEach(jogador => {
-            const posicao = jogador.position;
+        lineupPlayers.forEach(lp => {
+            const jogador = playersMap[lp.player_id];
+            if (!jogador) return;
             
-            if (posicao === 'ALA') {
-                if (escalacaoAtual.ALA[0] === null) {
-                    escalacaoAtual.ALA[0] = jogador;
-                } else if (escalacaoAtual.ALA[1] === null) {
-                    escalacaoAtual.ALA[1] = jogador;
+            const posicao = jogador.position;
+            const ehTitular = lp.is_starter;
+            
+            if (ehTitular) {
+                // Adicionar titulares
+                if (posicao === 'ALA') {
+                    if (escalacaoAtual.titulares.ALA[0] === null) {
+                        escalacaoAtual.titulares.ALA[0] = jogador;
+                    } else if (escalacaoAtual.titulares.ALA[1] === null) {
+                        escalacaoAtual.titulares.ALA[1] = jogador;
+                    }
+                } else {
+                    escalacaoAtual.titulares[posicao] = jogador;
                 }
             } else {
-                escalacaoAtual[posicao] = jogador;
+                // Adicionar reservas
+                if (posicao === 'ALA') {
+                    if (escalacaoAtual.reservas.ALA[0] === null) {
+                        escalacaoAtual.reservas.ALA[0] = jogador;
+                    } else if (escalacaoAtual.reservas.ALA[1] === null) {
+                        escalacaoAtual.reservas.ALA[1] = jogador;
+                    }
+                } else {
+                    escalacaoAtual.reservas[posicao] = jogador;
+                }
             }
         });
         
@@ -616,6 +908,10 @@ function adicionarJogador(jogadorId) {
 }
 // Remover jogador da escalação
 function removerJogador(jogadorId) {
+    if (!mercadoAberto) {
+        mostrarMensagem('Mercado fechado! Aguarde o fim da rodada.', 'error');
+        return;
+    }
     let jogadorRemovido = null;
     
     // Buscar e remover
@@ -759,6 +1055,13 @@ function calcularTotalJogadores() {
 }
 
 async function salvarEscalacao() {
+    // ✅ VERIFICAR SE MERCADO AINDA ESTÁ ABERTO
+    const mercadoEstaAberto = await verificarStatusMercado();
+    if (!mercadoEstaAberto) {
+        alert('⚠️ O mercado foi fechado! Uma rodada foi iniciada.');
+        location.reload();
+        return;
+    }
     try {
         const totalJogadores = calcularTotalJogadores();
         
@@ -893,42 +1196,40 @@ async function salvarEscalacao() {
         console.error('❌ Erro ao salvar escalação:', error);
         mostrarMensagem('Erro ao salvar escalação', 'error');
     }
-function getCorGradiente(posicao) {
-    const cores = {
-        'GOL': 'from-yellow-400 to-yellow-600',
-        'FIX': 'from-blue-400 to-blue-600',
-        'ALA': 'from-green-400 to-green-600',
-        'PIV': 'from-red-400 to-red-600'
-    };
-    return cores[posicao] || 'from-gray-400 to-gray-600';
 }
-// Utilitários
-function getCorPosicao(posicao) {
-    const cores = {
-        'GOL': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
-        'FIX': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-        'ALA': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-        'PIV': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
-    };
-    return cores[posicao] || 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
 }
+function atualizarBadgeMercado() {
+    const badge = document.getElementById('status-mercado');
+    if (!badge) return;
+    
+    if (mercadoAberto) {
+        badge.className = 'ml-3 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+        badge.innerHTML = '✅ Aberto';
+    } else {
+        badge.className = 'ml-3 px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+        badge.innerHTML = '🔒 Fechado';
+    }
+}
+// ============================================
+// AUTO-ATUALIZAÇÃO DE STATUS
+// ============================================
 
-function mostrarMensagem(mensagem, tipo = 'info') {
-    console.log(`${tipo.toUpperCase()}: ${mensagem}`);
-    
-    const notification = document.createElement('div');
-    notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-all duration-300 ${
-        tipo === 'success' ? 'bg-green-500 text-white' :
-        tipo === 'error' ? 'bg-red-500 text-white' :
-        tipo === 'warning' ? 'bg-yellow-500 text-white' :
-        'bg-blue-500 text-white'
-    }`;
-    notification.textContent = mensagem;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
-}
+// Verificar status do mercado a cada 30 segundos
+setInterval(async () => {
+    if (usuarioLogado) {
+        const statusAnterior = mercadoAberto;
+        await verificarStatusMercado();
+        
+        // Se o status mudou, recarregar a página
+        if (statusAnterior !== mercadoAberto) {
+            console.log('⚠️ Status do mercado mudou! Recarregando...');
+            alert(mercadoAberto ? 
+                '✅ Mercado reaberto! A rodada foi finalizada.' : 
+                '🔒 Mercado fechado! Uma rodada foi iniciada.'
+            );
+            location.reload();
+        }
+        
+        atualizarBadgeMercado();
+    }
+}, 30000); // 30 segundos

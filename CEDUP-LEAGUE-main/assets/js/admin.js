@@ -40,6 +40,42 @@ async function verificarAutenticacao() {
     }
 }
 
+// No início do admin.js, após verificarAutenticacao()
+
+async function verificarPermissaoAdmin() {
+    const { data: userData, error } = await supabase
+        .from('users')
+        .select('is_admin, role')
+        .eq('id', (await supabase.auth.getUser()).data.user.id)
+        .single();
+    
+    if (error || !userData) {
+        console.error('❌ Erro ao verificar permissões:', error);
+        alert('❌ Erro ao verificar permissões');
+        window.location.href = 'index.html';
+        return false;
+    }
+    
+    if (!userData.is_admin && userData.role !== 'admin') {
+        alert('❌ Acesso negado! Você não é administrador.');
+        window.location.href = 'dashboard.html';
+        return false;
+    }
+    
+    return true;
+}
+
+// Modificar a função de inicialização
+document.addEventListener('DOMContentLoaded', async function() {
+    await verificarAutenticacao();
+    
+    // ✅ ADICIONAR ESTA LINHA
+    const isAdmin = await verificarPermissaoAdmin();
+    if (!isAdmin) return;
+    
+    await verificarAdmin();
+    initializeAdmin();
+});
 async function verificarAdmin() {
     const { data: { user }, error } = await supabase.auth.getUser();
     
@@ -64,14 +100,22 @@ async function verificarAdmin() {
 
 // ... resto do código continua igual
 
+// Dentro da função initializeAdmin(), adicione:
 async function initializeAdmin() {
     await carregarEstatisticas();
     await carregarJogadores();
     await carregarTimes();
     await carregarRodadas();
     
+    // ✅ ADICIONAR ESTAS LINHAS:
+    await carregarRodadasSelect();
+    await carregarJogadoresSelect();
+    
     setupEventListeners();
     setupFiltros();
+    
+    // ✅ ADICIONAR ESTA LINHA:
+    setupEventListenersEstatisticas();
 }
 
 // ============= ESTATÍSTICAS =============
@@ -707,63 +751,65 @@ async function carregarRodadas() {
 function renderizarRodadas(rodadas) {
     const container = document.getElementById('lista-rodadas-admin');
     
+    if (!container) {
+        console.warn('⚠️ Elemento lista-rodadas-admin não encontrado no HTML');
+        return;
+    }
+    
     if (!rodadas || rodadas.length === 0) {
-        container.innerHTML = '<p class="text-gray-500 dark:text-gray-400 text-center">Nenhuma rodada encontrada.</p>';
+        container.innerHTML = `
+            <p class="text-center text-gray-500 dark:text-gray-400 py-4">
+                Nenhuma rodada encontrada.
+            </p>
+        `;
         return;
     }
     
     container.innerHTML = rodadas.map(rodada => {
-        const statusClass = {
-            'upcoming': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-            'active': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-            'finished': 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+        const statusConfig = {
+            'active': {
+                color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+                icon: '🟢',
+                text: 'Ativa'
+            },
+            'closed': {
+                color: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+                icon: '🟡',
+                text: 'Fechada'
+            },
+            'finished': {
+                color: 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-200',
+                icon: '⚫',
+                text: 'Finalizada'
+            }
         };
         
-        const statusText = {
-            'upcoming': '⏳ Próxima',
-            'active': '▶️ Ativa',
-            'finished': '✅ Finalizada'
-        };
+        const status = statusConfig[rodada.status] || statusConfig.finished;
+        const dataCriacao = new Date(rodada.created_at).toLocaleDateString('pt-BR');
         
         return `
             <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                 <div class="flex items-center justify-between mb-3">
-                    <h4 class="font-medium text-gray-900 dark:text-white">${rodada.name}</h4>
-                    <div class="flex items-center space-x-2">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusClass[rodada.status]}">
-                            ${statusText[rodada.status]}
-                                                    </span>
-                        <button onclick="editarRodada(${rodada.id})" 
-                                class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
-                            ✏️
-                        </button>
-                        <button onclick="deletarRodada(${rodada.id})" 
-                                class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">
-                            🗑️
-                        </button>
+                    <div>
+                        <h4 class="font-semibold text-gray-900 dark:text-white">${rodada.name}</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Criada em: ${dataCriacao}</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${status.color}">
+                            ${status.icon} ${status.text}
+                        </span>
                     </div>
                 </div>
                 
-                <div class="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    Criada em: ${new Date(rodada.created_at).toLocaleDateString('pt-BR')}
-                </div>
-                
-                <div class="flex space-x-2">
-                    ${rodada.status === 'upcoming' ? 
-                        `<button onclick="ativarRodada(${rodada.id})" 
-                                class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
-                            ▶️ Ativar
-                        </button>` : 
-                        rodada.status === 'active' ? 
-                        `<button onclick="finalizarRodada(${rodada.id})" 
-                                class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
-                            ⏹️ Finalizar
-                        </button>` : 
-                        `<button onclick="reativarRodada(${rodada.id})" 
-                                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
-                            🔄 Reativar
-                        </button>`
-                    }
+                <div class="flex gap-2">
+                    <button onclick="editarRodada(${rodada.id})" 
+                            class="text-blue-600 hover:text-blue-800 dark:text-blue-400 text-sm">
+                        ✏️ Editar
+                    </button>
+                    <button onclick="deletarRodada(${rodada.id})" 
+                            class="text-red-600 hover:text-red-800 dark:text-red-400 text-sm">
+                        🗑️ Deletar
+                    </button>
                 </div>
             </div>
         `;
@@ -988,19 +1034,18 @@ function mudarTab(tabName) {
     });
     
     // Mostrar tab selecionada
-    document.getElementById(`content-${tabName}`).classList.remove('hidden');
+    const contentTab = document.getElementById(`content-${tabName}`);
+    if (contentTab) {
+        contentTab.classList.remove('hidden');
+    }
     
     // Ativar botão selecionado
     const activeButton = document.getElementById(`tab-${tabName}`);
-    activeButton.classList.add('active', 'border-blue-500', 'text-blue-600');
-    activeButton.classList.remove('border-transparent', 'text-gray-500');
-    
-    // Recarregar dados específicos se necessário
-    if (tabName === 'times') {
-        carregarTimes();
+    if (activeButton) {
+        activeButton.classList.add('active', 'border-blue-500', 'text-blue-600');
+        activeButton.classList.remove('border-transparent', 'text-gray-500');
     }
 }
-
 // ============= EVENT LISTENERS =============
 function setupEventListeners() {
     // Formulários
@@ -1077,3 +1122,482 @@ window.mudarTab = mudarTab;
 window.logout = logout;
 
 console.log('🎮 Admin Panel carregado com sucesso!');
+// ============================================
+// ADICIONAR AO FINAL DO admin.js
+// Sistema de Estatísticas ao Vivo
+// ============================================
+
+let rodadasDisponiveis = [];
+let jogadoresDisponiveis = [];
+let estatisticasAtuais = [];
+
+// ============= INICIALIZAÇÃO =============
+
+// Adicionar ao DOMContentLoaded existente:
+// Após initializeAdmin(), adicione:
+// carregarRodadasSelect();
+// carregarJogadoresSelect();
+// setupEventListenersEstatisticas();
+
+async function carregarRodadasSelect() {
+    try {
+        const { data, error } = await supabase
+            .from('rounds')
+            .select('id, name, status')
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        rodadasDisponiveis = data || [];
+        
+        const select = document.getElementById('stat-round');
+        if (!select) return;
+        
+        select.innerHTML = '<option value="">Selecione a rodada...</option>';
+        rodadasDisponiveis.forEach(round => {
+            const badge = round.status === 'active' ? ' ⚡ ATIVA' : round.status === 'finished' ? ' ✅' : '';
+            select.innerHTML += `<option value="${round.id}">${round.name}${badge}</option>`;
+        });
+        
+    } catch (error) {
+        console.error('Erro ao carregar rodadas:', error);
+    }
+}
+
+async function carregarJogadoresSelect() {
+    try {
+        const { data, error } = await supabase
+            .from('players')
+            .select('id, name, position, team')
+            .order('team')
+            .order('name');
+        
+        if (error) throw error;
+        
+        jogadoresDisponiveis = data || [];
+        
+        const select = document.getElementById('stat-player');
+        if (!select) return;
+        
+        select.innerHTML = '<option value="">Selecione o jogador...</option>';
+        
+        // Agrupar por time
+        const times = {};
+        jogadoresDisponiveis.forEach(player => {
+            if (!times[player.team]) times[player.team] = [];
+            times[player.team].push(player);
+        });
+        
+        // Criar optgroups
+        Object.keys(times).sort().forEach(team => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = team;
+            
+            times[team].forEach(player => {
+                const option = document.createElement('option');
+                option.value = player.id;
+                option.textContent = `${player.name} (${player.position})`;
+                optgroup.appendChild(option);
+            });
+            
+            select.appendChild(optgroup);
+        });
+        
+    } catch (error) {
+        console.error('Erro ao carregar jogadores:', error);
+    }
+}
+
+// ============= EVENT LISTENERS =============
+
+function setupEventListenersEstatisticas() {
+    // Listener de rodada
+    const selectRound = document.getElementById('stat-round');
+    if (selectRound) {
+        selectRound.addEventListener('change', async function() {
+            if (this.value) {
+                await carregarEstatisticasRodada(this.value);
+            }
+        });
+    }
+    
+    // Listener de jogador
+    const selectPlayer = document.getElementById('stat-player');
+    if (selectPlayer) {
+        selectPlayer.addEventListener('change', async function() {
+            const roundId = document.getElementById('stat-round').value;
+            if (this.value && roundId) {
+                await buscarEstatisticaExistente(roundId, this.value);
+            }
+        });
+    }
+    
+    // Listeners para calcular pontos em tempo real
+    const inputs = [
+        'stat-goals', 'stat-assists', 'stat-shots', 'stat-tackles',
+        'stat-interceptions', 'stat-blocks', 'stat-saves', 'stat-goals-conceded',
+        'stat-yellow', 'stat-red', 'stat-fouls-committed', 'stat-fouls-suffered',
+        'stat-own-goals', 'stat-minutes'
+    ];
+    
+    inputs.forEach(id => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.addEventListener('input', calcularPontosPreview);
+        }
+    });
+    
+    // Checkboxes
+    const checkClean = document.getElementById('stat-clean-sheet');
+    const checkPenalty = document.getElementById('stat-penalty-saved');
+    if (checkClean) checkClean.addEventListener('change', calcularPontosPreview);
+    if (checkPenalty) checkPenalty.addEventListener('change', calcularPontosPreview);
+    
+    // Form submit
+    const formEstatisticas = document.getElementById('form-estatisticas');
+    if (formEstatisticas) {
+        formEstatisticas.addEventListener('submit', salvarEstatisticas);
+    }
+}
+
+// ============= BUSCAR/CARREGAR DADOS =============
+
+async function buscarEstatisticaExistente(roundId, playerId) {
+    try {
+        const { data, error } = await supabase
+            .from('player_stats')
+            .select('*')
+            .eq('round_id', roundId)
+            .eq('player_id', playerId)
+            .single();
+        
+        if (error && error.code !== 'PGRST116') throw error;
+        
+        if (data) {
+            // Preencher formulário
+            document.getElementById('stat-goals').value = data.goals;
+            document.getElementById('stat-assists').value = data.assists;
+            document.getElementById('stat-shots').value = data.shots_on_target;
+            document.getElementById('stat-tackles').value = data.tackles;
+            document.getElementById('stat-interceptions').value = data.interceptions;
+            document.getElementById('stat-blocks').value = data.blocks;
+            document.getElementById('stat-saves').value = data.saves;
+            document.getElementById('stat-goals-conceded').value = data.goals_conceded;
+            document.getElementById('stat-clean-sheet').checked = data.clean_sheet;
+            document.getElementById('stat-penalty-saved').checked = data.penalty_saved;
+            document.getElementById('stat-yellow').value = data.yellow_cards;
+            document.getElementById('stat-red').value = data.red_cards;
+            document.getElementById('stat-fouls-committed').value = data.fouls_committed;
+            document.getElementById('stat-fouls-suffered').value = data.fouls_suffered;
+            document.getElementById('stat-own-goals').value = data.own_goals;
+            document.getElementById('stat-minutes').value = data.minutes_played;
+            
+            calcularPontosPreview();
+        } else {
+            limparFormularioEstatisticas();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao buscar estatística:', error);
+    }
+}
+
+async function carregarEstatisticasRodada(roundId) {
+    try {
+        showLoading();
+        
+        const { data, error } = await supabase
+            .from('player_stats')
+            .select(`
+                *,
+                players (name, position, team)
+            `)
+            .eq('round_id', roundId)
+            .order('total_points', { ascending: false });
+        
+        if (error) throw error;
+        
+        estatisticasAtuais = data || [];
+        renderizarEstatisticasRodada(estatisticasAtuais);
+        
+    } catch (error) {
+        console.error('Erro ao carregar estatísticas:', error);
+        alert('Erro ao carregar estatísticas da rodada');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ============= RENDERIZAÇÃO =============
+
+function renderizarEstatisticasRodada(stats) {
+    const container = document.getElementById('lista-estatisticas');
+    if (!container) return;
+    
+    if (stats.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                Nenhuma estatística cadastrada para esta rodada
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = stats.map(stat => `
+        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+            <div class="flex items-center justify-between">
+                <div class="flex-1">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl font-bold ${stat.total_points >= 0 ? 'text-green-600' : 'text-red-600'}">
+                            ${stat.total_points.toFixed(1)}
+                        </span>
+                        <div>
+                            <h4 class="font-semibold text-gray-900 dark:text-white">${stat.players.name}</h4>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">
+                                ${getPosicaoNome(stat.players.position)} - ${stat.players.team}
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                        ${stat.goals > 0 ? `<span class="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 px-2 py-1 rounded">⚽ ${stat.goals}G</span>` : ''}
+                        ${stat.assists > 0 ? `<span class="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2 py-1 rounded">🎯 ${stat.assists}A</span>` : ''}
+                        ${stat.saves > 0 ? `<span class="bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 px-2 py-1 rounded">🧤 ${stat.saves} Def</span>` : ''}
+                        ${stat.clean_sheet ? `<span class="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 px-2 py-1 rounded">🛡️ Clean</span>` : ''}
+                        ${stat.yellow_cards > 0 ? `<span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded">🟨 ${stat.yellow_cards}</span>` : ''}
+                        ${stat.red_cards > 0 ? `<span class="bg-red-100 text-red-800 px-2 py-1 rounded">🟥 ${stat.red_cards}</span>` : ''}
+                    </div>
+                </div>
+                
+                <div class="flex space-x-2">
+                    <button onclick="editarEstatistica('${stat.player_id}')" 
+                            class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                        ✏️
+                    </button>
+                    <button onclick="deletarEstatistica('${stat.player_id}', '${stat.round_id}')" 
+                            class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ============= CALCULAR PONTOS PREVIEW =============
+
+function calcularPontosPreview() {
+    const playerId = document.getElementById('stat-player').value;
+    if (!playerId) return;
+    
+    const player = jogadoresDisponiveis.find(p => p.id == playerId);
+    if (!player) return;
+    
+    let points = 0;
+    
+    // Pegar valores
+    const goals = parseInt(document.getElementById('stat-goals').value) || 0;
+    const assists = parseInt(document.getElementById('stat-assists').value) || 0;
+    const shots = parseInt(document.getElementById('stat-shots').value) || 0;
+    const tackles = parseInt(document.getElementById('stat-tackles').value) || 0;
+    const interceptions = parseInt(document.getElementById('stat-interceptions').value) || 0;
+    const blocks = parseInt(document.getElementById('stat-blocks').value) || 0;
+    const saves = parseInt(document.getElementById('stat-saves').value) || 0;
+    const goalsConceded = parseInt(document.getElementById('stat-goals-conceded').value) || 0;
+    const cleanSheet = document.getElementById('stat-clean-sheet').checked;
+    const penaltySaved = document.getElementById('stat-penalty-saved').checked;
+    const yellow = parseInt(document.getElementById('stat-yellow').value) || 0;
+    const red = parseInt(document.getElementById('stat-red').value) || 0;
+    const foulsCommitted = parseInt(document.getElementById('stat-fouls-committed').value) || 0;
+    const foulsSuffered = parseInt(document.getElementById('stat-fouls-suffered').value) || 0;
+    const ownGoals = parseInt(document.getElementById('stat-own-goals').value) || 0;
+    
+    // Calcular (mesma lógica do SQL)
+    switch (player.position) {
+        case 'GOL': points += goals * 12; break;
+        case 'FIX': points += goals * 10; break;
+        case 'ALA': points += goals * 8; break;
+        case 'PIV': points += goals * 8; break;
+    }
+    
+    points += assists * 5;
+    points += shots * 1.5;
+    points += tackles * 2;
+    points += interceptions * 2;
+    points += blocks * 2;
+    
+    if (player.position === 'GOL') {
+        points += saves * 1.5;
+    }
+    
+    if (cleanSheet) {
+        if (player.position === 'GOL') points += 8;
+        else if (player.position === 'FIX') points += 5;
+        else points += 3;
+    }
+    
+    if (penaltySaved) points += 10;
+    
+    points += foulsSuffered * 0.5;
+    points -= ownGoals * 5;
+    
+    if (player.position === 'GOL' || player.position === 'FIX') {
+        points -= goalsConceded * 2;
+    }
+    
+    points -= yellow * 2;
+    points -= red * 5;
+    points -= foulsCommitted * 0.5;
+    
+    // Atualizar display
+    const preview = document.getElementById('points-preview');
+    if (preview) {
+        preview.textContent = points.toFixed(2);
+        preview.className = points >= 0 ? 
+            'text-2xl font-bold text-green-600 dark:text-green-400' : 
+            'text-2xl font-bold text-red-600 dark:text-red-400';
+    }
+}
+
+// ============= SALVAR ESTATÍSTICAS =============
+
+async function salvarEstatisticas(event) {
+    event.preventDefault();
+    
+    const roundId = document.getElementById('stat-round').value;
+    const playerId = document.getElementById('stat-player').value;
+    
+    if (!roundId || !playerId) {
+        alert('Selecione uma rodada e um jogador!');
+        return;
+    }
+    
+    // ✅ NÃO CONVERTER PARA parseInt - Manter como string (para UUID)
+    const dados = {
+        round_id: roundId,        // ← SEM parseInt()
+        player_id: playerId,       // ← SEM parseInt()
+        goals: parseInt(document.getElementById('stat-goals').value) || 0,
+        assists: parseInt(document.getElementById('stat-assists').value) || 0,
+        shots_on_target: parseInt(document.getElementById('stat-shots').value) || 0,
+        tackles: parseInt(document.getElementById('stat-tackles').value) || 0,
+        interceptions: parseInt(document.getElementById('stat-interceptions').value) || 0,
+        blocks: parseInt(document.getElementById('stat-blocks').value) || 0,
+        saves: parseInt(document.getElementById('stat-saves').value) || 0,
+        goals_conceded: parseInt(document.getElementById('stat-goals-conceded').value) || 0,
+        clean_sheet: document.getElementById('stat-clean-sheet').checked,
+        penalty_saved: document.getElementById('stat-penalty-saved').checked,
+        yellow_cards: parseInt(document.getElementById('stat-yellow').value) || 0,
+        red_cards: parseInt(document.getElementById('stat-red').value) || 0,
+        fouls_committed: parseInt(document.getElementById('stat-fouls-committed').value) || 0,
+        fouls_suffered: parseInt(document.getElementById('stat-fouls-suffered').value) || 0,
+        own_goals: parseInt(document.getElementById('stat-own-goals').value) || 0,
+        minutes_played: parseInt(document.getElementById('stat-minutes').value) || 0
+    };
+    
+    try {
+        showLoading();
+        
+        // Verificar se já existe
+        const { data: existing } = await supabase
+            .from('player_stats')
+            .select('id')
+            .eq('round_id', roundId)
+            .eq('player_id', playerId)
+            .single();
+        
+        let result;
+        if (existing) {
+            // Atualizar
+            result = await supabase
+                .from('player_stats')
+                .update(dados)
+                .eq('round_id', roundId)
+                .eq('player_id', playerId);
+        } else {
+            // Inserir
+            result = await supabase
+                .from('player_stats')
+                .insert([dados]);
+        }
+        
+        if (result.error) throw result.error;
+        
+        alert('✅ Estatísticas salvas! Os pontos foram atualizados automaticamente.');
+        
+        // Recarregar lista
+        await carregarEstatisticasRodada(roundId);
+        limparFormularioEstatisticas();
+        
+    } catch (error) {
+        console.error('Erro ao salvar:', error);
+        alert('❌ Erro ao salvar estatísticas: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+// ============= EDITAR/DELETAR =============
+
+function editarEstatistica(playerId) {
+    const roundId = document.getElementById('stat-round').value;
+    
+    document.getElementById('stat-player').value = playerId;
+    buscarEstatisticaExistente(roundId, playerId);
+    
+    // Scroll para o formulário
+    document.getElementById('form-estatisticas').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function deletarEstatistica(playerId, roundId) {
+    const player = jogadoresDisponiveis.find(p => p.id == playerId);
+    if (!player) return;
+    
+    if (!confirm(`Deletar estatísticas de ${player.name}?`)) return;
+    
+    try {
+        showLoading();
+        
+        const { error } = await supabase
+            .from('player_stats')
+            .delete()
+            .eq('player_id', playerId)
+            .eq('round_id', roundId);
+        
+        if (error) throw error;
+        
+        alert('✅ Estatísticas deletadas!');
+        await carregarEstatisticasRodada(roundId);
+        
+    } catch (error) {
+        console.error('Erro ao deletar:', error);
+        alert('❌ Erro ao deletar: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+// ============= UTILITÁRIOS =============
+
+function limparFormularioEstatisticas() {
+    document.getElementById('stat-goals').value = 0;
+    document.getElementById('stat-assists').value = 0;
+    document.getElementById('stat-shots').value = 0;
+    document.getElementById('stat-tackles').value = 0;
+    document.getElementById('stat-interceptions').value = 0;
+    document.getElementById('stat-blocks').value = 0;
+    document.getElementById('stat-saves').value = 0;
+    document.getElementById('stat-goals-conceded').value = 0;
+    document.getElementById('stat-clean-sheet').checked = false;
+    document.getElementById('stat-penalty-saved').checked = false;
+    document.getElementById('stat-yellow').value = 0;
+    document.getElementById('stat-red').value = 0;
+    document.getElementById('stat-fouls-committed').value = 0;
+    document.getElementById('stat-fouls-suffered').value = 0;
+    document.getElementById('stat-own-goals').value = 0;
+    document.getElementById('stat-minutes').value = 0;
+    document.getElementById('points-preview').textContent = '0.00';
+}
+
+// Exportar funções para uso global
+window.editarEstatistica = editarEstatistica;
+window.deletarEstatistica = deletarEstatistica;
