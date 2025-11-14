@@ -541,5 +541,5 @@ window.utils = {
     // Constantes
     PONTOS_SCOUTS
 };
-
+//
 console.log('✅ Utils carregado com sucesso');

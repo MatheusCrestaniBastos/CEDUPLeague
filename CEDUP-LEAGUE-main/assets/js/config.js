@@ -33,4 +33,4 @@ const SISTEMA = {
 };
 
 // Exportar configurações
-window.SISTEMA = SISTEMA;
+window.SISTEMA = SISTEMA;//

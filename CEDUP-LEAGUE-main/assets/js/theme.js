@@ -217,5 +217,5 @@ window.theme = {
 
 // Manter compatibilidade com código antigo
 window.toggleTheme = toggleTheme;
-
+//
 console.log('✅ Sistema de temas carregado');

@@ -993,3 +993,4 @@ setInterval(async () => {
         atualizarBadgeMercado();
     }
 }, 30000); // 30 segundos
+//

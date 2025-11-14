@@ -659,4 +659,4 @@ window.iniciarRodada = iniciarRodada;
 window.finalizarRodada = finalizarRodada;
 window.excluirRodada = excluirRodada;
 
-console.log('✅ admin.js carregado');
+console.log('✅ admin.js carregado');//

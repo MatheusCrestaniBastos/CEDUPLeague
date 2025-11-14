@@ -396,3 +396,4 @@ window.dashboard = {
 };
 
 console.log('✅ Dashboard inicializado');
+//

@@ -473,3 +473,4 @@ window.logout = logout;
 window.verificarAutenticacao = verificarAutenticacao;
 
 console.log('✅ Sistema de autenticação inicializado');
+//
